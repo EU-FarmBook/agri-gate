@@ -27,6 +27,10 @@ Implemented:
 - PDF active-content and embedded-file indicator detection
 - nested archive recursion with entry-count, depth, and expanded-size limits
 - optional ClamAV-based malware scanning through `clamd`
+- fail-fast config validation at startup
+- request IDs and structured access logging
+- optional bearer or `X-API-Key` authentication for non-public routes
+- simple per-IP rate limiting for non-public routes
 - PostgreSQL-backed job and event persistence when `DATABASE_URL` is set
 - in-memory fallback storage when `DATABASE_URL` is not set
 - health, readiness, version, and job lookup endpoints
@@ -43,6 +47,7 @@ Not implemented yet:
 
 Current endpoints:
 
+- `GET /`
 - `GET /v1/health`
 - `GET /v1/ready`
 - `GET /v1/version`
@@ -97,6 +102,9 @@ The application reads:
 - `APP_ENV`
 - `APP_PORT`
 - `APP_VERSION`
+- `API_AUTH_TOKEN`
+- `ENABLE_DEBUG_ROUTES`
+- `RATE_LIMIT_RPM`
 - `DATABASE_URL`
 - `CLAMD_ADDR`
 - `FILE_SCAN_ENABLED`
@@ -128,6 +136,13 @@ File scanning behavior:
 - if `CLAMD_ADDR` is set, the application attempts malware scanning through `clamd`
 - if `CLAMD_ADDR` is empty, file scans still enforce size and MIME policy but skip malware scanning
 
+Security behavior:
+
+- if `API_AUTH_TOKEN` is set, non-public routes require either `Authorization: Bearer <token>` or `X-API-Key: <token>`
+- public routes are `/`, `/v1/health`, `/v1/ready`, and `/v1/version`
+- if `RATE_LIMIT_RPM` is greater than zero, non-public routes are rate-limited per client IP in a one-minute window
+- if `ENABLE_DEBUG_ROUTES=false`, `/debug/test` is not registered
+
 ## Local Development
 
 ```bash
@@ -150,12 +165,13 @@ make run
 
 Then open:
 
+- `http://localhost:8900/`
 - `http://localhost:8900/debug/test`
 - `http://localhost:8900/v1/health`
 - `http://localhost:8900/v1/ready`
 - `http://localhost:8900/v1/version`
 
-`/debug/test` is a built-in manual test page for browser-based URL and file scan requests.
+`/debug/test` is a built-in manual test page for browser-based URL and file scan requests. It is intended for development environments and can be disabled with `ENABLE_DEBUG_ROUTES=false`.
 
 ## Docker
 
@@ -172,6 +188,7 @@ If you want the stack in the background, use `make docker-up-detached`.
 
 With Docker running, use the same browser URLs:
 
+- `http://localhost:8900/`
 - `http://localhost:8900/debug/test`
 - `http://localhost:8900/v1/health`
 - `http://localhost:8900/v1/ready`
@@ -187,6 +204,8 @@ With Docker running, use the same browser URLs:
 - live reachability checks using outbound HTTP requests
 - redirect validation up to the configured maximum
 - dangerous download detection from URL path, `Content-Type`, and `Content-Disposition`
+- optional API-token protection on non-public routes
+- request ID response headers and structured access logs
 
 `POST /v1/scan/file` currently performs:
 
@@ -200,12 +219,15 @@ With Docker running, use the same browser URLs:
 - nested archive inspection with recursion and decompression limits
 - SHA-256 hashing
 - optional ClamAV malware scanning
+- optional API-token protection on non-public routes
+- per-IP rate limiting on non-public routes
 
 ## Limitations
 
 - legacy binary Office formats such as `.doc`, `.ppt`, and `.xls` are accepted by policy but are not deeply inspected yet
 - nested archive inspection currently focuses on ZIP-based containers
 - PDF inspection is currently token-based rather than a full object-graph parser
+- rate limiting is currently in-memory and instance-local
 - file scanning currently supports synchronous multipart uploads only
 - persistence is durable only when PostgreSQL is enabled
 

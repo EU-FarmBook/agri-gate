@@ -1,11 +1,17 @@
 package httpapi
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log"
 	"net/http"
+	"net/netip"
 	"strings"
+	"sync"
+	"time"
 
 	"agri-gate/internal/config"
 	"agri-gate/internal/domain"
@@ -13,28 +19,66 @@ import (
 )
 
 type Server struct {
-	config config.Config
-	jobs   *jobs.Service
-	logger *log.Logger
+	config  config.Config
+	jobs    *jobs.Service
+	logger  *log.Logger
+	limiter *rateLimiter
 }
 
 func NewServer(cfg config.Config, jobsSvc *jobs.Service, logger *log.Logger) http.Handler {
 	server := &Server{
-		config: cfg,
-		jobs:   jobsSvc,
-		logger: logger,
+		config:  cfg,
+		jobs:    jobsSvc,
+		logger:  logger,
+		limiter: newRateLimiter(cfg.RateLimitRPM, time.Now),
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/", server.handleIndex)
 	mux.HandleFunc("/v1/health", server.handleHealth)
 	mux.HandleFunc("/v1/ready", server.handleReady)
 	mux.HandleFunc("/v1/version", server.handleVersion)
 	mux.HandleFunc("/v1/scan/url", server.handleScanURL)
 	mux.HandleFunc("/v1/scan/file", server.handleScanFile)
 	mux.HandleFunc("/v1/jobs/", server.handleGetJob)
-	mux.HandleFunc("/debug/test", server.handleDebugTest)
+	if cfg.EnableDebugRoutes {
+		mux.HandleFunc("/debug/test", server.handleDebugTest)
+	}
 
-	return server.withLogging(mux)
+	var handler http.Handler = mux
+	handler = server.withRateLimit(handler)
+	handler = server.withAuth(handler)
+	handler = server.withRequestID(handler)
+	handler = server.withLogging(handler)
+	return handler
+}
+
+type contextKey string
+
+const requestIDKey contextKey = "request_id"
+
+func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeMethodNotAllowed(w)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"service": "agri-gate",
+		"version": s.config.AppVersion,
+		"status":  "ok",
+		"routes": map[string]string{
+			"health":    "/v1/health",
+			"ready":     "/v1/ready",
+			"version":   "/v1/version",
+			"scan_url":  "/v1/scan/url",
+			"scan_file": "/v1/scan/file",
+		},
+	})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -171,6 +215,10 @@ func (s *Server) handleScanFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDebugTest(w http.ResponseWriter, r *http.Request) {
+	if !s.config.EnableDebugRoutes || r.URL.Path != "/debug/test" {
+		http.NotFound(w, r)
+		return
+	}
 	if r.Method != http.MethodGet {
 		writeMethodNotAllowed(w)
 		return
@@ -183,9 +231,178 @@ func (s *Server) handleDebugTest(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) withLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s.logger.Printf("%s %s", r.Method, r.URL.Path)
+		start := time.Now()
+		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(recorder, r)
+		s.logger.Printf("request_id=%s method=%s path=%s status=%d bytes=%d duration_ms=%d remote_ip=%s",
+			requestIDFromContext(r.Context()),
+			r.Method,
+			r.URL.Path,
+			recorder.status,
+			recorder.bytes,
+			time.Since(start).Milliseconds(),
+			clientIP(r),
+		)
+	})
+}
+
+func (s *Server) withRequestID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestID := newRequestID()
+		w.Header().Set("X-Request-ID", requestID)
+		ctx := context.WithValue(r.Context(), requestIDKey, requestID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (s *Server) withAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.config.APIAuthToken == "" || isPublicRoute(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		if token := extractAuthToken(r); token == s.config.APIAuthToken {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		writeJSON(w, http.StatusUnauthorized, map[string]any{
+			"error": "unauthorized",
+		})
+	})
+}
+
+func (s *Server) withRateLimit(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.limiter == nil || s.limiter.limit <= 0 || isPublicRoute(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		if !s.limiter.Allow(clientIP(r)) {
+			writeJSON(w, http.StatusTooManyRequests, map[string]any{
+				"error": "rate_limited",
+			})
+			return
+		}
+
 		next.ServeHTTP(w, r)
 	})
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+	bytes  int
+}
+
+func (r *statusRecorder) WriteHeader(status int) {
+	r.status = status
+	r.ResponseWriter.WriteHeader(status)
+}
+
+func (r *statusRecorder) Write(p []byte) (int, error) {
+	n, err := r.ResponseWriter.Write(p)
+	r.bytes += n
+	return n, err
+}
+
+type rateLimiter struct {
+	limit int
+	now   func() time.Time
+	mu    sync.Mutex
+	byIP  map[string]*rateBucket
+}
+
+type rateBucket struct {
+	windowStart time.Time
+	count       int
+}
+
+func newRateLimiter(limit int, now func() time.Time) *rateLimiter {
+	if limit <= 0 {
+		return &rateLimiter{limit: 0}
+	}
+	return &rateLimiter{
+		limit: limit,
+		now:   now,
+		byIP:  make(map[string]*rateBucket),
+	}
+}
+
+func (l *rateLimiter) Allow(ip string) bool {
+	if l == nil || l.limit <= 0 {
+		return true
+	}
+
+	now := l.now().UTC()
+	window := now.Truncate(time.Minute)
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	bucket, ok := l.byIP[ip]
+	if !ok || !bucket.windowStart.Equal(window) {
+		l.byIP[ip] = &rateBucket{windowStart: window, count: 1}
+		for key, value := range l.byIP {
+			if value.windowStart.Before(window) {
+				delete(l.byIP, key)
+			}
+		}
+		return true
+	}
+
+	if bucket.count >= l.limit {
+		return false
+	}
+	bucket.count++
+	return true
+}
+
+func requestIDFromContext(ctx context.Context) string {
+	value, _ := ctx.Value(requestIDKey).(string)
+	return value
+}
+
+func newRequestID() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return hex.EncodeToString([]byte(time.Now().UTC().Format("20060102150405.000000000")))
+	}
+	return hex.EncodeToString(b[:])
+}
+
+func extractAuthToken(r *http.Request) string {
+	if token := strings.TrimSpace(r.Header.Get("X-API-Key")); token != "" {
+		return token
+	}
+
+	auth := strings.TrimSpace(r.Header.Get("Authorization"))
+	if strings.HasPrefix(strings.ToLower(auth), "bearer ") {
+		return strings.TrimSpace(auth[7:])
+	}
+	return ""
+}
+
+func isPublicRoute(path string) bool {
+	switch path {
+	case "/", "/v1/health", "/v1/ready", "/v1/version":
+		return true
+	default:
+		return false
+	}
+}
+
+func clientIP(r *http.Request) string {
+	host := r.RemoteAddr
+	if parsed, err := netip.ParseAddrPort(r.RemoteAddr); err == nil {
+		return parsed.Addr().String()
+	}
+	if idx := strings.LastIndex(host, ":"); idx > 0 {
+		return host[:idx]
+	}
+	return host
 }
 
 func writeMethodNotAllowed(w http.ResponseWriter) {
@@ -205,7 +422,7 @@ const debugTestPage = `<!DOCTYPE html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Agri Gate Test Page</title>
+  <title>Security Scan Console</title>
   <style>
     :root {
       --bg: #f4f1e8;
@@ -296,13 +513,20 @@ const debugTestPage = `<!DOCTYPE html>
 </head>
 <body>
   <main>
-    <h1>Agri Gate Test Page</h1>
-    <p>Use this page for quick manual testing of the live API from your browser. It is a local debug surface, not a production UI.</p>
+    <h1>Security Scan Console</h1>
+    <p>Use this page for quick manual testing of the live API from your browser. It is a local debug surface intended for development environments.</p>
     <div class="quick-links">
       <a href="/v1/health" target="_blank" rel="noreferrer">Health</a>
       <a href="/v1/ready" target="_blank" rel="noreferrer">Ready</a>
       <a href="/v1/version" target="_blank" rel="noreferrer">Version</a>
     </div>
+
+    <section class="card" style="margin-top: 20px;">
+      <h2>Access Token</h2>
+      <p>Optional. If API token protection is enabled, enter the token here to authorize scan requests from this page.</p>
+      <label for="token-input">Bearer Token</label>
+      <input id="token-input" type="password" placeholder="Paste API token if required">
+    </section>
 
     <div class="grid">
       <section class="card">
@@ -355,9 +579,14 @@ const debugTestPage = `<!DOCTYPE html>
       render("Scanning URL...");
       try {
         const url = document.getElementById("url-input").value;
+        const token = document.getElementById("token-input").value.trim();
+        const headers = { "Content-Type": "application/json" };
+        if (token) {
+          headers["Authorization"] = "Bearer " + token;
+        }
         const response = await fetch("/v1/scan/url", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({ url })
         });
         render(await readJSON(response));
@@ -381,8 +610,14 @@ const debugTestPage = `<!DOCTYPE html>
       try {
         const formData = new FormData();
         formData.append("file", fileInput.files[0]);
+        const token = document.getElementById("token-input").value.trim();
+        const headers = {};
+        if (token) {
+          headers["Authorization"] = "Bearer " + token;
+        }
         const response = await fetch("/v1/scan/file", {
           method: "POST",
+          headers,
           body: formData
         });
         render(await readJSON(response));

@@ -20,6 +20,9 @@ import (
 
 func main() {
 	cfg := config.Load()
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("invalid configuration: %v", err)
+	}
 
 	logger := log.New(os.Stdout, "", log.LstdFlags|log.LUTC)
 	store, cleanup, err := newJobStore(context.Background(), cfg, logger)

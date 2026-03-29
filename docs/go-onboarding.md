@@ -43,6 +43,7 @@ go build -o bin/agri-gate ./cmd/api
 
 For quick manual browser testing, start the app and open `http://localhost:8900/debug/test`.
 That page submits requests directly to `POST /v1/scan/url` and `POST /v1/scan/file`.
+It is intended for development use and can be disabled with `ENABLE_DEBUG_ROUTES=false`.
 
 ## Configuration
 
@@ -58,6 +59,8 @@ source .env
 set +a
 make run
 ```
+
+If you set `API_AUTH_TOKEN`, browser/API requests to non-public routes must include that token.
 
 If `DATABASE_URL` is set, the application uses PostgreSQL.
 If `DATABASE_URL` is empty, it falls back to the in-memory store.

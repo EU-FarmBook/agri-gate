@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -12,6 +13,9 @@ type Config struct {
 	AppPort           string
 	AppVersion        string
 	DatabaseURL       string
+	APIAuthToken      string
+	EnableDebugRoutes bool
+	RateLimitRPM      int
 	ClamdAddr         string
 	FileScanEnabled   bool
 	FileScanStrict    bool
@@ -26,15 +30,20 @@ type Config struct {
 }
 
 func Load() Config {
+	appEnv := getEnv("APP_ENV", "development")
+
 	return Config{
-		AppEnv:           getEnv("APP_ENV", "development"),
-		AppPort:          getEnv("APP_PORT", "8900"),
-		AppVersion:       getEnv("APP_VERSION", "dev"),
-		DatabaseURL:      getEnv("DATABASE_URL", ""),
-		ClamdAddr:        getEnv("CLAMD_ADDR", ""),
-		FileScanEnabled:  getEnvBool("FILE_SCAN_ENABLED", true),
-		FileScanStrict:   getEnvBool("FILE_SCAN_STRICT", false),
-		MaxFileSizeBytes: getEnvInt64("MAX_FILE_SIZE_BYTES", 10*1024*1024),
+		AppEnv:            appEnv,
+		AppPort:           getEnv("APP_PORT", "8900"),
+		AppVersion:        getEnv("APP_VERSION", "dev"),
+		DatabaseURL:       getEnv("DATABASE_URL", ""),
+		APIAuthToken:      strings.TrimSpace(os.Getenv("API_AUTH_TOKEN")),
+		EnableDebugRoutes: getEnvBool("ENABLE_DEBUG_ROUTES", appEnv == "development"),
+		RateLimitRPM:      getEnvInt("RATE_LIMIT_RPM", 120),
+		ClamdAddr:         getEnv("CLAMD_ADDR", ""),
+		FileScanEnabled:   getEnvBool("FILE_SCAN_ENABLED", true),
+		FileScanStrict:    getEnvBool("FILE_SCAN_STRICT", false),
+		MaxFileSizeBytes:  getEnvInt64("MAX_FILE_SIZE_BYTES", 10*1024*1024),
 		AllowedFileTypes: getEnvCSV("ALLOWED_FILE_TYPES", []string{
 			"application/pdf",
 			"text/plain",
@@ -76,6 +85,37 @@ func Load() Config {
 
 func (c Config) ListenAddr() string {
 	return ":" + c.AppPort
+}
+
+func (c Config) Validate() error {
+	if _, err := strconv.Atoi(c.AppPort); err != nil {
+		return fmt.Errorf("APP_PORT must be numeric")
+	}
+	if c.HTTPTimeout <= 0 {
+		return fmt.Errorf("HTTP_TIMEOUT_SECONDS must be greater than zero")
+	}
+	if c.MaxFileSizeBytes <= 0 {
+		return fmt.Errorf("MAX_FILE_SIZE_BYTES must be greater than zero")
+	}
+	if c.MaxArchiveDepth <= 0 {
+		return fmt.Errorf("MAX_ARCHIVE_DEPTH must be greater than zero")
+	}
+	if c.MaxArchiveEntries <= 0 {
+		return fmt.Errorf("MAX_ARCHIVE_ENTRIES must be greater than zero")
+	}
+	if c.MaxExpandedBytes <= 0 {
+		return fmt.Errorf("MAX_EXPANDED_BYTES must be greater than zero")
+	}
+	if c.MaxRedirects <= 0 {
+		return fmt.Errorf("MAX_REDIRECTS must be greater than zero")
+	}
+	if c.RateLimitRPM < 0 {
+		return fmt.Errorf("RATE_LIMIT_RPM cannot be negative")
+	}
+	if len(c.AllowedFileTypes) == 0 {
+		return fmt.Errorf("ALLOWED_FILE_TYPES must not be empty")
+	}
+	return nil
 }
 
 func getEnv(key, fallback string) string {
