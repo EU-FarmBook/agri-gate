@@ -79,6 +79,93 @@ curl -sS -X POST http://localhost:8900/v1/scan/file \
   -F "file=@/path/to/file.pdf"
 ```
 
+## API Usage
+
+Protected routes require either:
+
+- `Authorization: Bearer YOUR_API_TOKEN`
+- `X-API-Key: YOUR_API_TOKEN`
+
+Production base URL:
+
+```text
+https://agrigate.nexavion.com
+```
+
+Authenticated URL scan with `curl`:
+
+```bash
+curl -sS -X POST https://agrigate.nexavion.com/v1/scan/url \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer YOUR_API_TOKEN' \
+  -d '{"url":"https://example.org"}'
+```
+
+Authenticated file scan with `curl`:
+
+```bash
+curl -sS -X POST https://agrigate.nexavion.com/v1/scan/file \
+  -H 'Authorization: Bearer YOUR_API_TOKEN' \
+  -F "file=@/absolute/path/to/file.pdf"
+```
+
+Python `requests` URL scan:
+
+```python
+import requests
+
+BASE_URL = "https://agrigate.nexavion.com"
+API_TOKEN = "YOUR_API_TOKEN"
+
+response = requests.post(
+    f"{BASE_URL}/v1/scan/url",
+    headers={
+        "Authorization": f"Bearer {API_TOKEN}",
+        "Content-Type": "application/json",
+    },
+    json={"url": "https://example.org"},
+    timeout=60,
+)
+
+print(response.status_code)
+print(response.json())
+```
+
+Python `requests` file scan:
+
+```python
+import os
+import requests
+
+BASE_URL = "https://agrigate.nexavion.com"
+API_TOKEN = "YOUR_API_TOKEN"
+FILE_PATH = "/absolute/path/to/file.pdf"
+
+with open(FILE_PATH, "rb") as file_obj:
+    response = requests.post(
+        f"{BASE_URL}/v1/scan/file",
+        headers={
+            "Authorization": f"Bearer {API_TOKEN}",
+        },
+        files={
+            "file": (os.path.basename(FILE_PATH), file_obj),
+        },
+        timeout=300,
+    )
+
+print(response.status_code)
+print(response.json())
+```
+
+Typical response fields to inspect:
+
+- `status`
+- `reason_code`
+- `reason`
+- `details.scan_duration_ms`
+
+A reusable Python example client is available at [examples/agri_gate_client.py](examples/agri_gate_client.py).
+
 ## Supported File Policy
 
 The default MIME allowlist is aligned with the current frontend upload policy and covers:
@@ -213,6 +300,12 @@ Suggested deployment flow:
 git push
 make docker-build-image IMAGE=ghcr.io/eu-farmbook/agri-gate:latest
 make docker-push-image IMAGE=ghcr.io/eu-farmbook/agri-gate:latest
+```
+
+If you usually build and push together, use:
+
+```bash
+make docker-publish-image IMAGE=ghcr.io/eu-farmbook/agri-gate:latest
 ```
 
 2. On the server, create the deployment directory and copy the templates.

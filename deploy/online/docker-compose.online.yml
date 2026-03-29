@@ -13,6 +13,7 @@ services:
       - agri-gate-internal
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=traefik-net"
       - "traefik.http.routers.agri-gate.rule=Host(`agrigate.nexavion.com`)"
       - "traefik.http.routers.agri-gate.entrypoints=websecure"
       - "traefik.http.routers.agri-gate.tls=true"
