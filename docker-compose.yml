@@ -1,0 +1,36 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+    environment:
+      APP_ENV: development
+      APP_PORT: 8080
+      APP_VERSION: dev
+      MAX_REDIRECTS: 5
+      HTTP_TIMEOUT_SECONDS: 10
+      ENABLE_HTML_EXTRACTION: "false"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - clamav
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: agri_gate
+      POSTGRES_USER: agri_gate
+      POSTGRES_PASSWORD: agri_gate
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  clamav:
+    image: clamav/clamav:stable
+    ports:
+      - "3310:3310"
+
+volumes:
+  postgres_data:

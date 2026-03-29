@@ -1,0 +1,39 @@
+# Binaries and build output
+bin/
+dist/
+build/
+out/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.out
+cover.out
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Vendored deps if you decide not to commit them
+vendor/
+
+# Environment and local overrides
+.env
+.env.local
+.env.*.local
+
+# Logs and temp files
+*.log
+tmp/
+.tmp/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
