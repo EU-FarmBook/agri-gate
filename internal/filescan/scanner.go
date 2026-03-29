@@ -29,19 +29,25 @@ type Verdict struct {
 }
 
 type Config struct {
-	Enabled          bool
-	Strict           bool
-	MaxFileSizeBytes int64
-	AllowedFileTypes []string
-	ClamdAddr        string
+	Enabled           bool
+	Strict            bool
+	MaxFileSizeBytes  int64
+	AllowedFileTypes  []string
+	MaxArchiveDepth   int
+	MaxArchiveEntries int
+	MaxExpandedBytes  int64
+	ClamdAddr         string
 }
 
 type Scanner struct {
-	enabled          bool
-	strict           bool
-	maxFileSize      int64
-	allowedFileTypes map[string]struct{}
-	malwareScanner   MalwareScanner
+	enabled           bool
+	strict            bool
+	maxFileSize       int64
+	maxArchiveDepth   int
+	maxArchiveEntries int
+	maxExpandedBytes  uint64
+	allowedFileTypes  map[string]struct{}
+	malwareScanner    MalwareScanner
 }
 
 func NewScanner(cfg Config) *Scanner {
@@ -56,11 +62,14 @@ func NewScanner(cfg Config) *Scanner {
 	}
 
 	return &Scanner{
-		enabled:          cfg.Enabled,
-		strict:           cfg.Strict,
-		maxFileSize:      cfg.MaxFileSizeBytes,
-		allowedFileTypes: allowed,
-		malwareScanner:   malwareScanner,
+		enabled:           cfg.Enabled,
+		strict:            cfg.Strict,
+		maxFileSize:       cfg.MaxFileSizeBytes,
+		maxArchiveDepth:   max(1, cfg.MaxArchiveDepth),
+		maxArchiveEntries: max(1, cfg.MaxArchiveEntries),
+		maxExpandedBytes:  normalizeExpandedLimit(cfg.MaxExpandedBytes, cfg.MaxFileSizeBytes),
+		allowedFileTypes:  allowed,
+		malwareScanner:    malwareScanner,
 	}
 }
 
@@ -97,7 +106,13 @@ func (s *Scanner) Scan(ctx context.Context, input domain.FileScanInput, now time
 		return result(now, domain.StatusMalicious, "file_policy", "file_type_not_allowed", "Uploaded file type is not allowed.", details)
 	}
 
-	if inspection, blocked := inspectContainer(filename, mimeType, input.Content, s.maxFileSize); blocked {
+	limits := inspectionLimits{
+		MaxDepth:    s.maxArchiveDepth,
+		MaxEntries:  s.maxArchiveEntries,
+		MaxExpanded: s.maxExpandedBytes,
+	}
+
+	if inspection, blocked := inspectContainer(filename, mimeType, input.Content, limits); blocked {
 		details["deep_inspection"] = inspection.Details
 		return result(now, domain.StatusMalicious, inspection.Engine, inspection.Code, inspection.Reason, details)
 	} else if inspection.Details != nil {
@@ -256,13 +271,24 @@ type inspectionResult struct {
 	Details map[string]any
 }
 
-func inspectContainer(filename, mimeType string, content []byte, maxFileSize int64) (inspectionResult, bool) {
+type inspectionLimits struct {
+	MaxDepth    int
+	MaxEntries  int
+	MaxExpanded uint64
+}
+
+type inspectionState struct {
+	Entries  int
+	Expanded uint64
+}
+
+func inspectContainer(filename, mimeType string, content []byte, limits inspectionLimits) (inspectionResult, bool) {
 	ext := strings.ToLower(filepath.Ext(filename))
 	switch {
 	case mimeType == "application/pdf" || ext == ".pdf":
 		return inspectPDF(content)
 	case isOOXMLMime(mimeType) || isOOXMLExt(ext):
-		return inspectOOXML(content, ext, maxFileSize)
+		return inspectOOXML(content, ext, limits)
 	default:
 		return inspectionResult{}, false
 	}
@@ -312,7 +338,7 @@ func inspectPDF(content []byte) (inspectionResult, bool) {
 	}, false
 }
 
-func inspectOOXML(content []byte, ext string, maxFileSize int64) (inspectionResult, bool) {
+func inspectOOXML(content []byte, ext string, limits inspectionLimits) (inspectionResult, bool) {
 	readerAt := bytes.NewReader(content)
 	zr, err := zip.NewReader(readerAt, int64(len(content)))
 	if err != nil {
@@ -328,9 +354,8 @@ func inspectOOXML(content []byte, ext string, maxFileSize int64) (inspectionResu
 		}, true
 	}
 
-	entryNames := make([]string, 0, len(zr.File))
+	state := &inspectionState{}
 	findings := make([]string, 0, 4)
-	var totalUncompressed uint64
 	var hasContentTypes bool
 	var hasWordDir bool
 	var hasExcelDir bool
@@ -338,8 +363,17 @@ func inspectOOXML(content []byte, ext string, maxFileSize int64) (inspectionResu
 
 	for _, file := range zr.File {
 		name := normalizeZipEntryName(file.Name)
-		entryNames = append(entryNames, name)
-		totalUncompressed += file.UncompressedSize64
+		state.Entries++
+		state.Expanded += file.UncompressedSize64
+
+		if state.Entries > limits.MaxEntries {
+			findings = append(findings, "too_many_entries")
+			return ooxmlBlocked("archive_limits_exceeded", "Office container has too many embedded entries.", findings, state), true
+		}
+		if state.Expanded > limits.MaxExpanded {
+			findings = append(findings, "expanded_size_limit")
+			return ooxmlBlocked("archive_limits_exceeded", "Office container expands beyond the configured inspection limit.", findings, state), true
+		}
 
 		switch {
 		case name == "[content_types].xml":
@@ -354,64 +388,57 @@ func inspectOOXML(content []byte, ext string, maxFileSize int64) (inspectionResu
 
 		if strings.Contains(name, "../") || strings.HasPrefix(name, "/") {
 			findings = append(findings, "path_traversal_entry")
-			return ooxmlBlocked("file_invalid_container", "Office container has unsafe entry paths.", findings, len(zr.File), totalUncompressed), true
+			return ooxmlBlocked("file_invalid_container", "Office container has unsafe entry paths.", findings, state), true
 		}
 		if isOOXMLMacroPath(name) {
 			findings = append(findings, "macro_content")
-			return ooxmlBlocked("office_macro_detected", "Office document contains macro content.", findings, len(zr.File), totalUncompressed), true
+			return ooxmlBlocked("office_macro_detected", "Office document contains macro content.", findings, state), true
 		}
 		if isOOXMLEmbeddedObjectPath(name) {
 			findings = append(findings, "embedded_object")
-			return ooxmlBlocked("office_embedded_object_detected", "Office document contains embedded objects or controls.", findings, len(zr.File), totalUncompressed), true
+			return ooxmlBlocked("office_embedded_object_detected", "Office document contains embedded objects or controls.", findings, state), true
 		}
 		if hasDangerousEmbeddedExtension(name) {
 			findings = append(findings, "embedded_executable")
-			return ooxmlBlocked("office_embedded_executable_detected", "Office document contains an embedded executable or scriptable payload.", findings, len(zr.File), totalUncompressed), true
+			return ooxmlBlocked("office_embedded_executable_detected", "Office document contains an embedded executable or scriptable payload.", findings, state), true
+		}
+		if shouldInspectNestedArchive(name, file) {
+			data, err := readZipEntry(file, limits.MaxExpanded)
+			if err != nil {
+				findings = append(findings, "nested_archive_read_error")
+				return ooxmlBlocked("file_invalid_container", "Embedded archive could not be inspected.", findings, state), true
+			}
+			if nested, blocked := inspectNestedArchive(name, data, 1, limits, state); blocked {
+				return nested, true
+			}
 		}
 	}
 
 	if len(zr.File) == 0 {
 		findings = append(findings, "empty_container")
-		return ooxmlBlocked("file_invalid_container", "Office container is empty.", findings, len(zr.File), totalUncompressed), true
-	}
-
-	if len(zr.File) > 2048 {
-		findings = append(findings, "too_many_entries")
-		return ooxmlBlocked("archive_limits_exceeded", "Office container has too many embedded entries.", findings, len(zr.File), totalUncompressed), true
-	}
-
-	maxExpanded := uint64(200 * 1024 * 1024)
-	if maxFileSize > 0 {
-		scaled := uint64(maxFileSize) * 20
-		if scaled < maxExpanded {
-			maxExpanded = scaled
-		}
-	}
-	if totalUncompressed > maxExpanded {
-		findings = append(findings, "expanded_size_limit")
-		return ooxmlBlocked("archive_limits_exceeded", "Office container expands beyond the configured inspection limit.", findings, len(zr.File), totalUncompressed), true
+		return ooxmlBlocked("file_invalid_container", "Office container is empty.", findings, state), true
 	}
 
 	if !hasContentTypes {
 		findings = append(findings, "missing_content_types")
-		return ooxmlBlocked("file_invalid_container", "Office container is missing required OOXML metadata.", findings, len(zr.File), totalUncompressed), true
+		return ooxmlBlocked("file_invalid_container", "Office container is missing required OOXML metadata.", findings, state), true
 	}
 
 	switch ext {
 	case ".docx":
 		if !hasWordDir {
 			findings = append(findings, "missing_word_dir")
-			return ooxmlBlocked("file_invalid_container", "Word document container is missing required word content.", findings, len(zr.File), totalUncompressed), true
+			return ooxmlBlocked("file_invalid_container", "Word document container is missing required word content.", findings, state), true
 		}
 	case ".xlsx":
 		if !hasExcelDir {
 			findings = append(findings, "missing_excel_dir")
-			return ooxmlBlocked("file_invalid_container", "Excel document container is missing required workbook content.", findings, len(zr.File), totalUncompressed), true
+			return ooxmlBlocked("file_invalid_container", "Excel document container is missing required workbook content.", findings, state), true
 		}
 	case ".pptx":
 		if !hasPowerPointDir {
 			findings = append(findings, "missing_powerpoint_dir")
-			return ooxmlBlocked("file_invalid_container", "PowerPoint document container is missing required presentation content.", findings, len(zr.File), totalUncompressed), true
+			return ooxmlBlocked("file_invalid_container", "PowerPoint document container is missing required presentation content.", findings, state), true
 		}
 	}
 
@@ -419,14 +446,14 @@ func inspectOOXML(content []byte, ext string, maxFileSize int64) (inspectionResu
 		Details: map[string]any{
 			"status":             "clean",
 			"format":             "ooxml",
-			"entries":            len(zr.File),
-			"uncompressed_bytes": totalUncompressed,
+			"entries":            state.Entries,
+			"uncompressed_bytes": state.Expanded,
 			"findings":           []string{},
 		},
 	}, false
 }
 
-func ooxmlBlocked(code, reason string, findings []string, entries int, totalUncompressed uint64) inspectionResult {
+func ooxmlBlocked(code, reason string, findings []string, state *inspectionState) inspectionResult {
 	return inspectionResult{
 		Engine: "container_inspection",
 		Code:   code,
@@ -434,9 +461,67 @@ func ooxmlBlocked(code, reason string, findings []string, entries int, totalUnco
 		Details: map[string]any{
 			"status":             "blocked",
 			"format":             "ooxml",
-			"entries":            entries,
-			"uncompressed_bytes": totalUncompressed,
+			"entries":            state.Entries,
+			"uncompressed_bytes": state.Expanded,
 			"findings":           findings,
+		},
+	}
+}
+
+func inspectNestedArchive(name string, content []byte, depth int, limits inspectionLimits, state *inspectionState) (inspectionResult, bool) {
+	if depth >= limits.MaxDepth {
+		return archiveBlocked("archive_limits_exceeded", "Nested archive depth exceeds the configured inspection limit.", []string{"max_depth_exceeded"}, name, depth+1, state), true
+	}
+
+	zr, err := zip.NewReader(bytes.NewReader(content), int64(len(content)))
+	if err != nil {
+		return inspectionResult{}, false
+	}
+
+	for _, file := range zr.File {
+		entryName := normalizeZipEntryName(file.Name)
+		state.Entries++
+		state.Expanded += file.UncompressedSize64
+
+		if state.Entries > limits.MaxEntries {
+			return archiveBlocked("archive_limits_exceeded", "Nested archive has too many entries.", []string{"too_many_entries"}, entryName, depth+1, state), true
+		}
+		if state.Expanded > limits.MaxExpanded {
+			return archiveBlocked("archive_limits_exceeded", "Nested archive expands beyond the configured inspection limit.", []string{"expanded_size_limit"}, entryName, depth+1, state), true
+		}
+		if strings.Contains(entryName, "../") || strings.HasPrefix(entryName, "/") {
+			return archiveBlocked("file_invalid_container", "Nested archive has unsafe entry paths.", []string{"path_traversal_entry"}, entryName, depth+1, state), true
+		}
+		if hasDangerousEmbeddedExtension(entryName) {
+			return archiveBlocked("nested_executable_detected", "Nested archive contains an executable or scriptable payload.", []string{"embedded_executable"}, entryName, depth+1, state), true
+		}
+		if shouldInspectNestedArchive(entryName, file) {
+			data, err := readZipEntry(file, limits.MaxExpanded)
+			if err != nil {
+				return archiveBlocked("file_invalid_container", "Nested archive entry could not be inspected.", []string{"nested_archive_read_error"}, entryName, depth+1, state), true
+			}
+			if nested, blocked := inspectNestedArchive(entryName, data, depth+1, limits, state); blocked {
+				return nested, true
+			}
+		}
+	}
+
+	return inspectionResult{}, false
+}
+
+func archiveBlocked(code, reason string, findings []string, entry string, depth int, state *inspectionState) inspectionResult {
+	return inspectionResult{
+		Engine: "container_inspection",
+		Code:   code,
+		Reason: reason,
+		Details: map[string]any{
+			"status":             "blocked",
+			"format":             "archive",
+			"entries":            state.Entries,
+			"uncompressed_bytes": state.Expanded,
+			"findings":           findings,
+			"entry":              entry,
+			"depth":              depth,
 		},
 	}
 }
@@ -488,4 +573,40 @@ func hasDangerousEmbeddedExtension(name string) bool {
 	default:
 		return false
 	}
+}
+
+func shouldInspectNestedArchive(name string, file *zip.File) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".zip", ".jar", ".apk":
+		return true
+	}
+	return file.UncompressedSize64 >= 4
+}
+
+func readZipEntry(file *zip.File, maxExpanded uint64) ([]byte, error) {
+	if file.UncompressedSize64 > maxExpanded {
+		return nil, fmt.Errorf("zip entry exceeds inspection size limit")
+	}
+
+	rc, err := file.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+
+	var buffer bytes.Buffer
+	if _, err := buffer.ReadFrom(rc); err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
+}
+
+func normalizeExpandedLimit(configured, fileSize int64) uint64 {
+	if configured > 0 {
+		return uint64(configured)
+	}
+	if fileSize > 0 {
+		return uint64(fileSize) * 20
+	}
+	return 200 * 1024 * 1024
 }

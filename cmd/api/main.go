@@ -33,11 +33,14 @@ func main() {
 		Timeout:      cfg.HTTPTimeout,
 	})
 	fileScanner := filescan.NewScanner(filescan.Config{
-		Enabled:          cfg.FileScanEnabled,
-		Strict:           cfg.FileScanStrict,
-		MaxFileSizeBytes: cfg.MaxFileSizeBytes,
-		AllowedFileTypes: cfg.AllowedFileTypes,
-		ClamdAddr:        cfg.ClamdAddr,
+		Enabled:           cfg.FileScanEnabled,
+		Strict:            cfg.FileScanStrict,
+		MaxFileSizeBytes:  cfg.MaxFileSizeBytes,
+		AllowedFileTypes:  cfg.AllowedFileTypes,
+		MaxArchiveDepth:   cfg.MaxArchiveDepth,
+		MaxArchiveEntries: cfg.MaxArchiveEntries,
+		MaxExpandedBytes:  cfg.MaxExpandedBytes,
+		ClamdAddr:         cfg.ClamdAddr,
 	})
 	jobService := jobs.NewService(store, scanner, fileScanner, cfg.Clock)
 

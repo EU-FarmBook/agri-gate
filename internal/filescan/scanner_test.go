@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,9 +26,12 @@ func (s stubMalwareScanner) Scan(context.Context, string, []byte) (Verdict, erro
 
 func TestScanRejectsTooLargeFile(t *testing.T) {
 	scanner := NewScanner(Config{
-		Enabled:          true,
-		MaxFileSizeBytes: 3,
-		AllowedFileTypes: []string{"text/plain"},
+		Enabled:           true,
+		MaxFileSizeBytes:  3,
+		AllowedFileTypes:  []string{"text/plain"},
+		MaxArchiveDepth:   3,
+		MaxArchiveEntries: 2048,
+		MaxExpandedBytes:  10 * 1024 * 1024,
 	})
 
 	result := scanner.Scan(context.Background(), domain.FileScanInput{
@@ -44,9 +48,12 @@ func TestScanRejectsTooLargeFile(t *testing.T) {
 
 func TestScanRejectsUnsupportedType(t *testing.T) {
 	scanner := NewScanner(Config{
-		Enabled:          true,
-		MaxFileSizeBytes: 1024,
-		AllowedFileTypes: []string{"application/pdf"},
+		Enabled:           true,
+		MaxFileSizeBytes:  1024,
+		AllowedFileTypes:  []string{"application/pdf"},
+		MaxArchiveDepth:   3,
+		MaxArchiveEntries: 2048,
+		MaxExpandedBytes:  10 * 1024 * 1024,
 	})
 
 	result := scanner.Scan(context.Background(), domain.FileScanInput{
@@ -63,9 +70,12 @@ func TestScanRejectsUnsupportedType(t *testing.T) {
 
 func TestScanReturnsCleanWithoutMalwareScanner(t *testing.T) {
 	scanner := NewScanner(Config{
-		Enabled:          true,
-		MaxFileSizeBytes: 1024,
-		AllowedFileTypes: []string{"text/plain; charset=utf-8", "text/plain"},
+		Enabled:           true,
+		MaxFileSizeBytes:  1024,
+		AllowedFileTypes:  []string{"text/plain; charset=utf-8", "text/plain"},
+		MaxArchiveDepth:   3,
+		MaxArchiveEntries: 2048,
+		MaxExpandedBytes:  10 * 1024 * 1024,
 	})
 
 	result := scanner.Scan(context.Background(), domain.FileScanInput{
@@ -79,9 +89,12 @@ func TestScanReturnsCleanWithoutMalwareScanner(t *testing.T) {
 
 func TestScanReturnsMaliciousWhenInfected(t *testing.T) {
 	scanner := NewScanner(Config{
-		Enabled:          true,
-		MaxFileSizeBytes: 1024,
-		AllowedFileTypes: []string{"text/plain; charset=utf-8", "text/plain"},
+		Enabled:           true,
+		MaxFileSizeBytes:  1024,
+		AllowedFileTypes:  []string{"text/plain; charset=utf-8", "text/plain"},
+		MaxArchiveDepth:   3,
+		MaxArchiveEntries: 2048,
+		MaxExpandedBytes:  10 * 1024 * 1024,
 	})
 	scanner.malwareScanner = stubMalwareScanner{verdict: Verdict{Infected: true, Threat: "Eicar-Test-Signature"}}
 
@@ -99,10 +112,13 @@ func TestScanReturnsMaliciousWhenInfected(t *testing.T) {
 
 func TestScanReturnsErrorInStrictModeOnMalwareScanFailure(t *testing.T) {
 	scanner := NewScanner(Config{
-		Enabled:          true,
-		Strict:           true,
-		MaxFileSizeBytes: 1024,
-		AllowedFileTypes: []string{"text/plain; charset=utf-8", "text/plain"},
+		Enabled:           true,
+		Strict:            true,
+		MaxFileSizeBytes:  1024,
+		AllowedFileTypes:  []string{"text/plain; charset=utf-8", "text/plain"},
+		MaxArchiveDepth:   3,
+		MaxArchiveEntries: 2048,
+		MaxExpandedBytes:  10 * 1024 * 1024,
 	})
 	scanner.malwareScanner = stubMalwareScanner{err: errors.New("clamd unavailable")}
 
@@ -128,9 +144,12 @@ func TestInferMIMETypeUsesOOXMLExtensionForZipPayloads(t *testing.T) {
 
 func TestScanRejectsOOXMLMacros(t *testing.T) {
 	scanner := NewScanner(Config{
-		Enabled:          true,
-		MaxFileSizeBytes: 1024 * 1024,
-		AllowedFileTypes: []string{"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+		Enabled:           true,
+		MaxFileSizeBytes:  1024 * 1024,
+		AllowedFileTypes:  []string{"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+		MaxArchiveDepth:   3,
+		MaxArchiveEntries: 2048,
+		MaxExpandedBytes:  10 * 1024 * 1024,
 	})
 
 	content := buildZipFile(t, map[string]string{
@@ -154,9 +173,12 @@ func TestScanRejectsOOXMLMacros(t *testing.T) {
 
 func TestScanRejectsOOXMLEmbeddedObjects(t *testing.T) {
 	scanner := NewScanner(Config{
-		Enabled:          true,
-		MaxFileSizeBytes: 1024 * 1024,
-		AllowedFileTypes: []string{"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+		Enabled:           true,
+		MaxFileSizeBytes:  1024 * 1024,
+		AllowedFileTypes:  []string{"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+		MaxArchiveDepth:   3,
+		MaxArchiveEntries: 2048,
+		MaxExpandedBytes:  10 * 1024 * 1024,
 	})
 
 	content := buildZipFile(t, map[string]string{
@@ -179,9 +201,12 @@ func TestScanRejectsOOXMLEmbeddedObjects(t *testing.T) {
 
 func TestScanRejectsInvalidOOXMLContainer(t *testing.T) {
 	scanner := NewScanner(Config{
-		Enabled:          true,
-		MaxFileSizeBytes: 1024 * 1024,
-		AllowedFileTypes: []string{"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+		Enabled:           true,
+		MaxFileSizeBytes:  1024 * 1024,
+		AllowedFileTypes:  []string{"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+		MaxArchiveDepth:   3,
+		MaxArchiveEntries: 2048,
+		MaxExpandedBytes:  10 * 1024 * 1024,
 	})
 
 	content := buildZipFile(t, map[string]string{
@@ -202,9 +227,12 @@ func TestScanRejectsInvalidOOXMLContainer(t *testing.T) {
 
 func TestScanRejectsPDFActiveContent(t *testing.T) {
 	scanner := NewScanner(Config{
-		Enabled:          true,
-		MaxFileSizeBytes: 1024 * 1024,
-		AllowedFileTypes: []string{"application/pdf"},
+		Enabled:           true,
+		MaxFileSizeBytes:  1024 * 1024,
+		AllowedFileTypes:  []string{"application/pdf"},
+		MaxArchiveDepth:   3,
+		MaxArchiveEntries: 2048,
+		MaxExpandedBytes:  10 * 1024 * 1024,
 	})
 
 	content := []byte("%PDF-1.7\n1 0 obj\n<< /OpenAction 2 0 R /JavaScript 3 0 R >>\nendobj\n")
@@ -222,9 +250,12 @@ func TestScanRejectsPDFActiveContent(t *testing.T) {
 
 func TestScanAcceptsSimpleOOXMLDocument(t *testing.T) {
 	scanner := NewScanner(Config{
-		Enabled:          true,
-		MaxFileSizeBytes: 1024 * 1024,
-		AllowedFileTypes: []string{"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+		Enabled:           true,
+		MaxFileSizeBytes:  1024 * 1024,
+		AllowedFileTypes:  []string{"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+		MaxArchiveDepth:   3,
+		MaxArchiveEntries: 2048,
+		MaxExpandedBytes:  10 * 1024 * 1024,
 	})
 
 	content := buildZipFile(t, map[string]string{
@@ -253,6 +284,118 @@ func buildZipFile(t *testing.T, files map[string]string) []byte {
 			t.Fatalf("create zip entry %q: %v", name, err)
 		}
 		if _, err := fileWriter.Write([]byte(body)); err != nil {
+			t.Fatalf("write zip entry %q: %v", name, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close zip writer: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func TestScanRejectsNestedExecutableInArchive(t *testing.T) {
+	scanner := NewScanner(Config{
+		Enabled:           true,
+		MaxFileSizeBytes:  1024 * 1024,
+		AllowedFileTypes:  []string{"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+		MaxArchiveDepth:   3,
+		MaxArchiveEntries: 2048,
+		MaxExpandedBytes:  10 * 1024 * 1024,
+	})
+
+	nested := buildZipFile(t, map[string]string{
+		"payload.exe": "MZ",
+	})
+	content := buildZipFileBytes(t, map[string][]byte{
+		"[Content_Types].xml":   []byte(`<Types></Types>`),
+		"word/document.xml":     []byte(`<w:document></w:document>`),
+		"word/media/nested.zip": nested,
+	})
+
+	result := scanner.Scan(context.Background(), domain.FileScanInput{
+		Filename: "nested.docx",
+		Content:  content,
+	}, time.Now().UTC())
+	if result.Status != domain.StatusMalicious {
+		t.Fatalf("expected malicious status, got %q", result.Status)
+	}
+	if result.ReasonCode != "nested_executable_detected" {
+		t.Fatalf("expected nested executable detection, got %q", result.ReasonCode)
+	}
+}
+
+func TestScanRejectsNestedArchiveDepthLimit(t *testing.T) {
+	scanner := NewScanner(Config{
+		Enabled:           true,
+		MaxFileSizeBytes:  1024 * 1024,
+		AllowedFileTypes:  []string{"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+		MaxArchiveDepth:   1,
+		MaxArchiveEntries: 2048,
+		MaxExpandedBytes:  10 * 1024 * 1024,
+	})
+
+	level2 := buildZipFile(t, map[string]string{
+		"payload.txt": "ok",
+	})
+	level1 := buildZipFileBytes(t, map[string][]byte{
+		"inner.zip": level2,
+	})
+	content := buildZipFileBytes(t, map[string][]byte{
+		"[Content_Types].xml": []byte(`<Types></Types>`),
+		"word/document.xml":   []byte(`<w:document></w:document>`),
+		"word/media/a.zip":    level1,
+	})
+
+	result := scanner.Scan(context.Background(), domain.FileScanInput{
+		Filename: "depth.docx",
+		Content:  content,
+	}, time.Now().UTC())
+	if result.Status != domain.StatusMalicious {
+		t.Fatalf("expected malicious status, got %q", result.Status)
+	}
+	if result.ReasonCode != "archive_limits_exceeded" {
+		t.Fatalf("expected archive limit detection, got %q", result.ReasonCode)
+	}
+}
+
+func TestScanRejectsExpandedArchiveLimit(t *testing.T) {
+	scanner := NewScanner(Config{
+		Enabled:           true,
+		MaxFileSizeBytes:  1024 * 1024,
+		AllowedFileTypes:  []string{"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+		MaxArchiveDepth:   3,
+		MaxArchiveEntries: 2048,
+		MaxExpandedBytes:  64,
+	})
+
+	content := buildZipFile(t, map[string]string{
+		"[Content_Types].xml": strings.Repeat("A", 40),
+		"word/document.xml":   strings.Repeat("B", 80),
+	})
+
+	result := scanner.Scan(context.Background(), domain.FileScanInput{
+		Filename: "large.docx",
+		Content:  content,
+	}, time.Now().UTC())
+	if result.Status != domain.StatusMalicious {
+		t.Fatalf("expected malicious status, got %q", result.Status)
+	}
+	if result.ReasonCode != "archive_limits_exceeded" {
+		t.Fatalf("expected archive limit detection, got %q", result.ReasonCode)
+	}
+}
+
+func buildZipFileBytes(t *testing.T, files map[string][]byte) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	writer := zip.NewWriter(&buf)
+	for name, body := range files {
+		fileWriter, err := writer.Create(name)
+		if err != nil {
+			t.Fatalf("create zip entry %q: %v", name, err)
+		}
+		if _, err := fileWriter.Write(body); err != nil {
 			t.Fatalf("write zip entry %q: %v", name, err)
 		}
 	}

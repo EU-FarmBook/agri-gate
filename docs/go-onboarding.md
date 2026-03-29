@@ -50,6 +50,7 @@ If `DATABASE_URL` is set, the application uses PostgreSQL.
 If `DATABASE_URL` is empty, it falls back to the in-memory store.
 
 The URL scanner behavior is also driven by runtime configuration, including request timeout and maximum redirect depth.
+The file scanner also uses archive-inspection limits for nested ZIP-based containers.
 
 ## Testing
 

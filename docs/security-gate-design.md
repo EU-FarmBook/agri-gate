@@ -112,6 +112,7 @@ Core file checks:
 - extension-aware MIME normalization for OOXML containers
 - SHA-256 hashing
 - malware scanning
+- nested archive recursion limits
 
 Malware scanning policy:
 
@@ -122,10 +123,10 @@ Malware scanning policy:
 
 Future deeper checks should include:
 
-- archive recursion limits
 - media container validation
 - deep inspection for legacy binary Office formats
 - richer PDF parsing beyond token-based detection
+- broader nested-container support beyond ZIP-based archives
 
 ## Persistence Model
 
@@ -152,11 +153,12 @@ The current codebase already includes:
 - OOXML container validation for `.docx`, `.pptx`, and `.xlsx`
 - OOXML macro, embedded object, and embedded executable detection
 - PDF active-content and embedded-file indicator detection
+- nested ZIP recursion with depth, entry-count, and expanded-size limits
 - optional ClamAV integration via `clamd`
 
 It does not yet include:
 
 - Google Web Risk integration
-- archive recursion
 - deep inspection for legacy binary Office formats
 - full PDF object parsing
+- broader nested-container support beyond ZIP-based archives

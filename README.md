@@ -25,6 +25,7 @@ Implemented:
 - deterministic deep inspection for OOXML containers and PDFs
 - OOXML macro, embedded object, and embedded executable detection
 - PDF active-content and embedded-file indicator detection
+- nested archive recursion with entry-count, depth, and expanded-size limits
 - optional ClamAV-based malware scanning through `clamd`
 - PostgreSQL-backed job and event persistence when `DATABASE_URL` is set
 - in-memory fallback storage when `DATABASE_URL` is not set
@@ -101,6 +102,9 @@ The application reads:
 - `FILE_SCAN_STRICT`
 - `MAX_FILE_SIZE_BYTES`
 - `ALLOWED_FILE_TYPES`
+- `MAX_ARCHIVE_DEPTH`
+- `MAX_ARCHIVE_ENTRIES`
+- `MAX_EXPANDED_BYTES`
 - `MAX_REDIRECTS`
 - `HTTP_TIMEOUT_SECONDS`
 
@@ -164,13 +168,14 @@ The Compose stack includes `api`, `postgres`, and `clamav`. `postgres` is used w
 - deterministic OOXML container validation
 - OOXML macro, embedded object, and embedded executable detection
 - PDF active-content and embedded-file indicator detection
+- nested archive inspection with recursion and decompression limits
 - SHA-256 hashing
 - optional ClamAV malware scanning
 
 ## Limitations
 
 - legacy binary Office formats such as `.doc`, `.ppt`, and `.xls` are accepted by policy but are not deeply inspected yet
-- no archive recursion or nested container inspection yet
+- nested archive inspection currently focuses on ZIP-based containers
 - PDF inspection is currently token-based rather than a full object-graph parser
 - file scanning currently supports synchronous multipart uploads only
 - persistence is durable only when PostgreSQL is enabled
@@ -185,8 +190,8 @@ The Compose stack includes `api`, `postgres`, and `clamav`. `postgres` is used w
 
 Recommended next engineering steps:
 
-1. Add archive inspection with recursion and decompression limits.
-2. Add deep inspection for legacy binary Office formats.
-3. Add more robust PDF structure parsing and attachment inspection.
+1. Add deep inspection for legacy binary Office formats.
+2. Add more robust PDF structure parsing and attachment inspection.
+3. Add broader nested-container support beyond ZIP-based archives.
 4. Add Google Web Risk integration for URL reputation.
 5. Add explicit database migrations.
