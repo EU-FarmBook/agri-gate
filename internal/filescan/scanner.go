@@ -296,37 +296,29 @@ func inspectContainer(filename, mimeType string, content []byte, limits inspecti
 
 func inspectPDF(content []byte) (inspectionResult, bool) {
 	lower := bytes.ToLower(content)
-	indicators := []struct {
-		token string
-		code  string
-		text  string
-	}{
-		{token: "/javascript", code: "pdf_javascript_detected", text: "PDF contains JavaScript."},
-		{token: "/js", code: "pdf_javascript_detected", text: "PDF contains JavaScript."},
-		{token: "/openaction", code: "pdf_open_action_detected", text: "PDF contains an automatic open action."},
-		{token: "/launch", code: "pdf_launch_action_detected", text: "PDF contains a launch action."},
-		{token: "/embeddedfile", code: "pdf_embedded_file_detected", text: "PDF contains embedded files."},
-		{token: "/richmedia", code: "pdf_rich_media_detected", text: "PDF contains rich media content."},
-		{token: "/submitform", code: "pdf_submit_form_detected", text: "PDF contains form submission actions."},
-		{token: "/importdata", code: "pdf_import_data_detected", text: "PDF contains data import actions."},
-		{token: "/aa", code: "pdf_additional_actions_detected", text: "PDF contains additional actions."},
-	}
+	hasJavaScript := containsPDFKeyword(lower, "/javascript")
+	hasLaunch := containsPDFKeyword(lower, "/launch")
+	hasEmbeddedFile := containsPDFKeyword(lower, "/embeddedfile")
+	hasRichMedia := containsPDFKeyword(lower, "/richmedia")
+	hasSubmitForm := containsPDFKeyword(lower, "/submitform")
+	hasImportData := containsPDFKeyword(lower, "/importdata")
+	hasOpenAction := containsPDFKeyword(lower, "/openaction")
 
-	findings := make([]string, 0, len(indicators))
-	for _, indicator := range indicators {
-		if bytes.Contains(lower, []byte(indicator.token)) {
-			findings = append(findings, indicator.code)
-			return inspectionResult{
-				Engine: "pdf_inspection",
-				Code:   indicator.code,
-				Reason: indicator.text,
-				Details: map[string]any{
-					"status":   "blocked",
-					"format":   "pdf",
-					"findings": findings,
-				},
-			}, true
-		}
+	switch {
+	case hasJavaScript:
+		return blockedPDF("pdf_javascript_detected", "PDF contains JavaScript.")
+	case hasLaunch:
+		return blockedPDF("pdf_launch_action_detected", "PDF contains a launch action.")
+	case hasEmbeddedFile:
+		return blockedPDF("pdf_embedded_file_detected", "PDF contains embedded files.")
+	case hasRichMedia:
+		return blockedPDF("pdf_rich_media_detected", "PDF contains rich media content.")
+	case hasSubmitForm:
+		return blockedPDF("pdf_submit_form_detected", "PDF contains form submission actions.")
+	case hasImportData:
+		return blockedPDF("pdf_import_data_detected", "PDF contains data import actions.")
+	case hasOpenAction && (hasJavaScript || hasLaunch || hasEmbeddedFile || hasRichMedia):
+		return blockedPDF("pdf_open_action_active_content_detected", "PDF contains an automatic open action tied to active content.")
 	}
 
 	return inspectionResult{
@@ -336,6 +328,19 @@ func inspectPDF(content []byte) (inspectionResult, bool) {
 			"findings": []string{},
 		},
 	}, false
+}
+
+func blockedPDF(code, reason string) (inspectionResult, bool) {
+	return inspectionResult{
+		Engine: "pdf_inspection",
+		Code:   code,
+		Reason: reason,
+		Details: map[string]any{
+			"status":   "blocked",
+			"format":   "pdf",
+			"findings": []string{code},
+		},
+	}, true
 }
 
 func inspectOOXML(content []byte, ext string, limits inspectionLimits) (inspectionResult, bool) {
@@ -573,6 +578,26 @@ func hasDangerousEmbeddedExtension(name string) bool {
 	default:
 		return false
 	}
+}
+
+func containsPDFKeyword(content []byte, keyword string) bool {
+	token := []byte(keyword)
+	for start := 0; ; {
+		idx := bytes.Index(content[start:], token)
+		if idx == -1 {
+			return false
+		}
+		absolute := start + idx
+		end := absolute + len(token)
+		if end >= len(content) || !isPDFNameChar(content[end]) {
+			return true
+		}
+		start = absolute + 1
+	}
+}
+
+func isPDFNameChar(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '#' || b == '_' || b == '-'
 }
 
 func shouldInspectNestedArchive(name string, file *zip.File) bool {

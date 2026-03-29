@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -173,6 +174,22 @@ func (s *Server) handleScanFile(w http.ResponseWriter, r *http.Request) {
 
 	r.Body = http.MaxBytesReader(w, r.Body, s.config.MaxFileSizeBytes+1024*1024)
 	if err := r.ParseMultipartForm(s.config.MaxFileSizeBytes + 1024*1024); err != nil {
+		if isRequestTooLarge(err) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, domain.ScanResult{
+				Status:        domain.StatusMalicious,
+				Scope:         domain.ScopeFile,
+				PrimaryEngine: "file_policy",
+				CheckedAt:     s.config.Clock(),
+				Quarantined:   false,
+				Escalation:    false,
+				ReasonCode:    "file_too_large",
+				Reason:        "Uploaded file exceeds the configured size limit.",
+				Details: map[string]any{
+					"max_file_size_bytes": s.config.MaxFileSizeBytes,
+				},
+			})
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, map[string]any{
 			"error":   "invalid_multipart",
 			"message": err.Error(),
@@ -403,6 +420,10 @@ func clientIP(r *http.Request) string {
 		return host[:idx]
 	}
 	return host
+}
+
+func isRequestTooLarge(err error) bool {
+	return errors.Is(err, http.ErrBodyReadAfterClose) || strings.Contains(strings.ToLower(err.Error()), "request body too large")
 }
 
 func writeMethodNotAllowed(w http.ResponseWriter) {

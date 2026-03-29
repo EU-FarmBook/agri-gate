@@ -135,6 +135,7 @@ File scanning behavior:
 
 - if `CLAMD_ADDR` is set, the application attempts malware scanning through `clamd`
 - if `CLAMD_ADDR` is empty, file scans still enforce size and MIME policy but skip malware scanning
+- the default upload limit is `1073741824` bytes, about 1 GB
 
 Security behavior:
 
@@ -221,6 +222,7 @@ With Docker running, use the same browser URLs:
 - optional ClamAV malware scanning
 - optional API-token protection on non-public routes
 - per-IP rate limiting on non-public routes
+- oversize uploads return a structured `file_too_large` scan result
 
 ## Limitations
 

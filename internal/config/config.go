@@ -43,7 +43,7 @@ func Load() Config {
 		ClamdAddr:         getEnv("CLAMD_ADDR", ""),
 		FileScanEnabled:   getEnvBool("FILE_SCAN_ENABLED", true),
 		FileScanStrict:    getEnvBool("FILE_SCAN_STRICT", false),
-		MaxFileSizeBytes:  getEnvInt64("MAX_FILE_SIZE_BYTES", 10*1024*1024),
+		MaxFileSizeBytes:  getEnvInt64("MAX_FILE_SIZE_BYTES", 1024*1024*1024),
 		AllowedFileTypes: getEnvCSV("ALLOWED_FILE_TYPES", []string{
 			"application/pdf",
 			"text/plain",

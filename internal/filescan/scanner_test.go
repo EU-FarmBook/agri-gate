@@ -243,8 +243,48 @@ func TestScanRejectsPDFActiveContent(t *testing.T) {
 	if result.Status != domain.StatusMalicious {
 		t.Fatalf("expected malicious status, got %q", result.Status)
 	}
-	if result.ReasonCode != "pdf_javascript_detected" && result.ReasonCode != "pdf_open_action_detected" {
+	if result.ReasonCode != "pdf_javascript_detected" && result.ReasonCode != "pdf_open_action_active_content_detected" {
 		t.Fatalf("expected PDF active content detection, got %q", result.ReasonCode)
+	}
+}
+
+func TestScanAcceptsPDFOpenActionWithoutActiveContent(t *testing.T) {
+	scanner := NewScanner(Config{
+		Enabled:           true,
+		MaxFileSizeBytes:  1024 * 1024,
+		AllowedFileTypes:  []string{"application/pdf"},
+		MaxArchiveDepth:   3,
+		MaxArchiveEntries: 2048,
+		MaxExpandedBytes:  10 * 1024 * 1024,
+	})
+
+	content := []byte("%PDF-1.7\n1 0 obj\n<< /OpenAction [3 0 R /FitH null] >>\nendobj\n")
+	result := scanner.Scan(context.Background(), domain.FileScanInput{
+		Filename: "view-only.pdf",
+		Content:  content,
+	}, time.Now().UTC())
+	if result.Status != domain.StatusClean {
+		t.Fatalf("expected clean status, got %q", result.Status)
+	}
+}
+
+func TestScanDoesNotTreatFontNamesAsAdditionalActions(t *testing.T) {
+	scanner := NewScanner(Config{
+		Enabled:           true,
+		MaxFileSizeBytes:  1024 * 1024,
+		AllowedFileTypes:  []string{"application/pdf"},
+		MaxArchiveDepth:   3,
+		MaxArchiveEntries: 2048,
+		MaxExpandedBytes:  10 * 1024 * 1024,
+	})
+
+	content := []byte("%PDF-1.7\n<< /BaseFont /AAAAAB+HelveticaNeue-Bold >>\n")
+	result := scanner.Scan(context.Background(), domain.FileScanInput{
+		Filename: "font-only.pdf",
+		Content:  content,
+	}, time.Now().UTC())
+	if result.Status != domain.StatusClean {
+		t.Fatalf("expected clean status, got %q", result.Status)
 	}
 }
 
