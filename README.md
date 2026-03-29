@@ -161,11 +161,14 @@ Then open:
 
 ```bash
 make docker-up
+make docker-up-detached
 make docker-down
 make docker-logs
 ```
 
 The Compose stack includes `api`, `postgres`, and `clamav`. `postgres` is used when `DATABASE_URL` is configured. `clamav` is used when `CLAMD_ADDR` is configured. The host-exposed ports are `8900` for the API, `8901` for PostgreSQL, and `8902` for ClamAV.
+
+If you want the stack in the background, use `make docker-up-detached`.
 
 With Docker running, use the same browser URLs:
 

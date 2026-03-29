@@ -28,6 +28,7 @@ make test
 make fmt
 make lint
 make build
+make docker-up-detached
 ```
 
 Equivalent direct Go commands:

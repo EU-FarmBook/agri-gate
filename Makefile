@@ -1,7 +1,7 @@
 GO ?= go
 BINARY ?= bin/agri-gate
 
-.PHONY: run test build clean fmt lint docker-up docker-down docker-logs
+.PHONY: run test build clean fmt lint docker-up docker-up-detached docker-down docker-logs
 
 run:
 	$(GO) run ./cmd/api
@@ -24,6 +24,9 @@ lint:
 
 docker-up:
 	docker compose up --build
+
+docker-up-detached:
+	docker compose up --build -d
 
 docker-down:
 	docker compose down

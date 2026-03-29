@@ -17,8 +17,10 @@ services:
     ports:
       - "8900:8900"
     depends_on:
-      - postgres
-      - clamav
+      postgres:
+        condition: service_healthy
+      clamav:
+        condition: service_healthy
 
   postgres:
     image: postgres:16-alpine
@@ -30,6 +32,12 @@ services:
       - "8901:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agri_gate -d agri_gate"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
 
   clamav:
     image: clamav/clamav:stable

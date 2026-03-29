@@ -77,15 +77,26 @@ func newJobStore(ctx context.Context, cfg config.Config, logger *log.Logger) (jo
 		return storage.NewInMemoryJobStore(), func() {}, nil
 	}
 
-	store, err := storage.NewPostgresJobStore(ctx, cfg.DatabaseURL)
-	if err != nil {
-		return nil, nil, fmt.Errorf("connect postgres store: %w", err)
+	var lastErr error
+	for attempt := 1; attempt <= 15; attempt++ {
+		attemptCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		store, err := storage.NewPostgresJobStore(attemptCtx, cfg.DatabaseURL)
+		cancel()
+		if err == nil {
+			logger.Printf("using PostgreSQL job store")
+			return store, func() {
+				if err := store.Close(); err != nil {
+					logger.Printf("postgres close failed: %v", err)
+				}
+			}, nil
+		}
+
+		lastErr = err
+		logger.Printf("postgres initialization attempt %d/15 failed: %v", attempt, err)
+		if attempt < 15 {
+			time.Sleep(2 * time.Second)
+		}
 	}
 
-	logger.Printf("using PostgreSQL job store")
-	return store, func() {
-		if err := store.Close(); err != nil {
-			logger.Printf("postgres close failed: %v", err)
-		}
-	}, nil
+	return nil, nil, fmt.Errorf("connect postgres store after retries: %w", lastErr)
 }
