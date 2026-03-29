@@ -10,6 +10,7 @@ type Config struct {
 	AppEnv            string
 	AppPort           string
 	AppVersion        string
+	DatabaseURL       string
 	MaxRedirects      int
 	HTTPTimeout       time.Duration
 	EnableHTMLExtract bool
@@ -21,6 +22,7 @@ func Load() Config {
 		AppEnv:            getEnv("APP_ENV", "development"),
 		AppPort:           getEnv("APP_PORT", "8080"),
 		AppVersion:        getEnv("APP_VERSION", "dev"),
+		DatabaseURL:       getEnv("DATABASE_URL", ""),
 		MaxRedirects:      getEnvInt("MAX_REDIRECTS", 5),
 		HTTPTimeout:       time.Duration(getEnvInt("HTTP_TIMEOUT_SECONDS", 10)) * time.Second,
 		EnableHTMLExtract: getEnvBool("ENABLE_HTML_EXTRACTION", false),

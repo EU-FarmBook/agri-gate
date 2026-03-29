@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -20,8 +21,16 @@ func main() {
 	cfg := config.Load()
 
 	logger := log.New(os.Stdout, "", log.LstdFlags|log.LUTC)
-	store := storage.NewInMemoryJobStore()
-	scanner := urlscan.NewScanner()
+	store, cleanup, err := newJobStore(context.Background(), cfg, logger)
+	if err != nil {
+		logger.Fatalf("storage initialization failed: %v", err)
+	}
+	defer cleanup()
+
+	scanner := urlscan.NewScannerWithConfig(urlscan.Config{
+		MaxRedirects: cfg.MaxRedirects,
+		Timeout:      cfg.HTTPTimeout,
+	})
 	jobService := jobs.NewService(store, scanner, cfg.Clock)
 
 	server := &http.Server{
@@ -49,4 +58,23 @@ func main() {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Printf("graceful shutdown failed: %v", err)
 	}
+}
+
+func newJobStore(ctx context.Context, cfg config.Config, logger *log.Logger) (jobs.JobStore, func(), error) {
+	if cfg.DatabaseURL == "" {
+		logger.Printf("DATABASE_URL not set, using in-memory job store")
+		return storage.NewInMemoryJobStore(), func() {}, nil
+	}
+
+	store, err := storage.NewPostgresJobStore(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("connect postgres store: %w", err)
+	}
+
+	logger.Printf("using PostgreSQL job store")
+	return store, func() {
+		if err := store.Close(); err != nil {
+			logger.Printf("postgres close failed: %v", err)
+		}
+	}, nil
 }

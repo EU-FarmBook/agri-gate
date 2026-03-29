@@ -403,3 +403,16 @@ Avoid in v1 unless clearly necessary:
 - detonation sandboxes
 - distributed queueing complexity
 - multi-engine antivirus abstractions
+
+## Current repository implementation
+
+The current codebase already includes:
+
+- sync URL scan endpoint
+- PostgreSQL-backed persistence when configured
+- deterministic URL validation
+- timeout-bound live URL fetching
+- redirect-aware validation
+- response-header-based dangerous download detection
+
+It does not yet include file scanning, Google Web Risk, or AGROVOC-backed relevance scoring.

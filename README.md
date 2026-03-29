@@ -1,63 +1,45 @@
 # Agri Gate
 
-Agri Gate is an internal gateway service for checking URLs and files before other systems ingest them.
+Agri Gate is an internal gateway service for validating URLs and files before downstream ingestion.
 
-The intended long-term role of this service is:
+Its intended responsibilities are:
 
-- validate and scan URLs
-- validate and scan uploaded files
-- block obviously unsafe or policy-violating inputs
-- classify whether content is agriculture-related
-- produce structured scan decisions for downstream services
-- keep an audit trail of what was checked and why a decision was made
+- security validation for URLs and uploaded files
+- blocking unsafe or policy-violating inputs early
+- agriculture relevance classification
+- structured scan decisions for downstream services
+- auditability of checks and outcomes
 
-This repository currently contains a runnable v0 scaffold in Go. It is a starting point, not the finished system.
+## Current Status
 
-## Current implementation status
+This repository contains an early runnable Go implementation.
 
-Implemented now:
+Implemented:
 
-- Go HTTP API
+- HTTP API
 - synchronous `POST /v1/scan/url`
-- deterministic URL checks
+- deterministic URL validation and policy checks
+- live outbound URL fetching with timeout-bound requests
+- redirect-aware validation with maximum redirect enforcement
+- response-based dangerous download detection from headers and final URL
 - basic agriculture relevance scoring from URL text
-- in-memory job storage
+- PostgreSQL-backed job and event persistence when `DATABASE_URL` is set
+- in-memory fallback storage when `DATABASE_URL` is not set
 - health, readiness, version, and job lookup endpoints
-- Docker scaffolding
+- Docker Compose scaffolding
 - basic unit tests
 
-Planned but not implemented yet:
+Not implemented yet:
 
-- PostgreSQL persistence
+- file upload scanning
 - ClamAV integration
 - Google Web Risk integration
-- file upload scanning
 - batch submission and worker flow
 - full AGROVOC-backed relevance engine
 
-## Repository structure
+## API
 
-```text
-.
-├── cmd/api                  # application entrypoint
-├── deploy/docker            # Dockerfile
-├── docs                     # design and onboarding docs
-├── internal/config          # env-based configuration loading
-├── internal/domain          # core domain models
-├── internal/http            # HTTP handlers and server wiring
-├── internal/jobs            # job submission and retrieval service
-├── internal/storage         # storage implementations
-├── internal/urlscan         # deterministic URL scanning logic
-├── pkg/types                # reserved for public reusable types later
-├── .env.example             # example environment variables
-├── docker-compose.yml       # local container stack
-├── go.mod                   # Go module definition
-└── Makefile                 # common developer commands
-```
-
-## API endpoints
-
-The current API surface is:
+Current endpoints:
 
 - `GET /v1/health`
 - `GET /v1/ready`
@@ -65,7 +47,7 @@ The current API surface is:
 - `POST /v1/scan/url`
 - `GET /v1/jobs/{id}`
 
-Example scan request:
+Example request:
 
 ```json
 {
@@ -81,135 +63,74 @@ curl -sS -X POST http://localhost:8080/v1/scan/url \
   -d '{"url":"https://www.fao.org"}'
 ```
 
-## Prerequisites
+## Requirements
 
-For local development you need:
+- Go 1.25 or newer
+- Docker and Docker Compose for containerized local development
 
-- Go 1.22 or newer
-- Docker and Docker Compose if you want to use containers
-- Git
+## Configuration
 
-Verify your local Go setup with:
-
-```bash
-which go
-go version
-go env GOROOT GOPATH
-```
-
-## First-time Go note
-
-If you come from Python, the main difference is this:
-
-- Python typically uses a per-project virtual environment like `.venv`
-- Go usually does not create a per-project environment folder
-- Go uses `go.mod` to define the module and dependency requirements
-- downloaded dependencies are stored in a shared module cache outside the repo
-
-So for this project, there is nothing like `.venv` that you need to create in the repository.
-
-More detail is in [docs/go-onboarding.md](docs/go-onboarding.md).
-
-## Local development
-
-### 1. Prepare environment variables
-
-Create a local env file from the example:
-
-```bash
-cp .env.example .env
-```
-
-The current application reads these variables:
+The application currently reads:
 
 - `APP_ENV`
 - `APP_PORT`
 - `APP_VERSION`
+- `DATABASE_URL`
 - `MAX_REDIRECTS`
 - `HTTP_TIMEOUT_SECONDS`
 - `ENABLE_HTML_EXTRACTION`
 
-The app does not load `.env` automatically. In a shell session, export it manually:
+Create a local env file if needed:
 
 ```bash
+cp .env.example .env
 export $(grep -v '^#' .env | xargs)
 ```
 
-### 2. Run the app
+Storage behavior:
 
-With Go directly:
+- if `DATABASE_URL` is set, the application uses PostgreSQL
+- if `DATABASE_URL` is empty, it uses the in-memory store
+
+## Local Development
+
+Run the API:
 
 ```bash
 make run
 ```
 
-Equivalent direct command:
-
-```bash
-go run ./cmd/api
-```
-
-The service listens on `http://localhost:8080` by default.
-
-### 3. Run tests
+Run tests:
 
 ```bash
 make test
 ```
 
-Equivalent direct command:
-
-```bash
-go test ./...
-```
-
-### 4. Build a binary
-
-```bash
-make build
-```
-
-That produces:
-
-- `bin/agri-gate`
-
-Run the built binary:
-
-```bash
-./bin/agri-gate
-```
-
-### 5. Clean build output
-
-```bash
-make clean
-```
-
-### 6. Format the code
+Format code:
 
 ```bash
 make fmt
 ```
 
-Equivalent direct command:
-
-```bash
-go fmt ./...
-```
-
-### 7. Run the built-in lint baseline
+Run the built-in lint baseline:
 
 ```bash
 make lint
 ```
 
-Equivalent direct command:
+Build the binary:
 
 ```bash
-go vet ./...
+make build
 ```
 
-## Docker workflow
+Clean build output:
+
+```bash
+make clean
+```
+
+## Docker
 
 Start the local stack:
 
@@ -229,104 +150,70 @@ Follow API logs:
 make docker-logs
 ```
 
-Equivalent raw commands:
-
-```bash
-docker compose up --build
-docker compose down
-docker compose logs -f api
-```
-
-The compose stack includes:
+The Compose stack includes:
 
 - `api`
 - `postgres`
 - `clamav`
 
-At the moment, the app itself only depends on the `api` container to function. `postgres` and `clamav` are there because they are part of the planned target architecture.
+`postgres` is used by the API when `DATABASE_URL` is configured. `clamav` is included as part of the target architecture but is not yet integrated into the application.
 
-## How the current code works
+## Repository Layout
 
-Request flow for `POST /v1/scan/url`:
+```text
+.
+├── cmd/api
+├── deploy/docker
+├── deploy/postgres
+├── docs
+├── internal/config
+├── internal/domain
+├── internal/http
+├── internal/jobs
+├── internal/storage
+├── internal/urlscan
+├── pkg/types
+├── .env.example
+├── docker-compose.yml
+├── go.mod
+└── Makefile
+```
 
-1. The HTTP handler receives JSON input.
-2. The jobs service validates the request and creates a job.
-3. The URL scanner applies deterministic checks.
-4. A `ScanResult` is produced.
-5. The job and its event are stored in memory.
-6. The scan result is returned to the caller.
+## Current Behavior
 
 Current URL checks include:
 
 - URL parsing
 - HTTPS-only enforcement
 - rejection of embedded credentials
-- blocked localhost and internal/private hosts
-- blocked dangerous download extensions such as `.exe` and `.zip`
+- blocking localhost and internal/private hosts
+- live reachability checks using outbound HTTP requests
+- redirect validation up to the configured maximum
+- blocking dangerous download extensions such as `.exe` and `.zip`
+- blocking attachment-style and blocked binary content types from HTTP responses
 - simple agriculture keyword matching from hostname and path
 
-## Important limitations right now
+For `POST /v1/scan/url`, the application validates the request, produces a `ScanResult`, stores the job and event, and returns the result synchronously.
 
-- Job data is not persisted across restarts
-- DNS lookup is used for host safety checks, but no live HTTP fetch is performed yet
-- URL redirects are not followed yet
-- the relevance scoring is intentionally simplistic
-- there is no file scanning endpoint yet
+## Limitations
 
-## GoLand setup
+- no file scanning endpoint yet
+- no HTML content extraction yet
+- relevance scoring is intentionally simplistic
+- persistence is durable only when PostgreSQL is enabled
 
-In GoLand, verify:
+## Documentation
 
-- `File > Settings > Go > GOROOT` points to your installed Go SDK
-- `File > Settings > Go > GOPATH` points to your Go workspace, or use the default
+- Architecture and target design: [docs/security-gate-design.md](docs/security-gate-design.md)
+- Go onboarding: [docs/go-onboarding.md](docs/go-onboarding.md)
+- PostgreSQL persistence: [docs/postgres-persistence.md](docs/postgres-persistence.md)
 
-Recommended actions in GoLand:
+## Next Steps
 
-- open the repo root as the project
-- let GoLand detect `go.mod`
-- use the terminal or Run Configurations to run `go test ./...`
-- use GoLand formatting tools or `make fmt` before commits
-- create a Run Configuration for package `./cmd/api` if you want one-click startup
+Recommended next engineering steps:
 
-You do not need any special project-local Go environment folder.
-
-## Git workflow
-
-You already ran:
-
-```bash
-git init
-git remote add origin https://github.com/EU-FarmBook/agri-gate
-```
-
-To commit and push this scaffold:
-
-```bash
-git status
-git add .
-git commit -m "Scaffold initial agri-gate service"
-git branch -M main
-git push -u origin main
-```
-
-If Git asks for your identity first:
-
-```bash
-git config user.name "Pranav"
-git config user.email "your-email@example.com"
-```
-
-## Documentation index
-
-- Design and intended architecture: [docs/security-gate-design.md](docs/security-gate-design.md)
-- Go onboarding for this repo: [docs/go-onboarding.md](docs/go-onboarding.md)
-
-## Next recommended steps
-
-The next engineering steps that make this scaffold more real are:
-
-1. Add PostgreSQL-backed storage behind the existing storage boundary.
-2. Implement live outbound URL fetches with timeout and redirect handling.
-3. Add file upload scanning and ClamAV integration.
-4. Add Google Web Risk integration.
-5. Add structured logging and metrics.
+1. Add HTML extraction and richer text-based agriculture relevance scoring.
+2. Add file upload scanning and ClamAV integration.
+3. Add Google Web Risk integration.
+4. Add structured logging and metrics.
+5. Add explicit database migrations.
