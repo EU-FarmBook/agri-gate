@@ -43,7 +43,8 @@ Edit `.env.online`:
 - set a real `API_AUTH_TOKEN`
 - set a real `POSTGRES_PASSWORD`
 - keep `DATABASE_URL` aligned with that same password
-- keep `ENABLE_DEBUG_ROUTES=false`
+- set `ENABLE_DEBUG_ROUTES=true` if you want the lightweight browser UI at `/debug/test`
+- keep `ENABLE_DEBUG_ROUTES=false` if you want an API-only production deployment
 
 Start the stack:
 
@@ -65,3 +66,5 @@ agrigate.nexavion.com
 ```
 
 Adjust the Traefik host rule if you want a different domain or subdomain.
+
+If you enable `/debug/test` in production, the page itself is public, but the scan actions still require the API token entered into the page.

@@ -140,7 +140,7 @@ File scanning behavior:
 Security behavior:
 
 - if `API_AUTH_TOKEN` is set, non-public routes require either `Authorization: Bearer <token>` or `X-API-Key: <token>`
-- public routes are `/`, `/v1/health`, `/v1/ready`, and `/v1/version`
+- public routes are `/`, `/debug/test`, `/v1/health`, `/v1/ready`, and `/v1/version`
 - if `RATE_LIMIT_RPM` is greater than zero, non-public routes are rate-limited per client IP in a one-minute window
 - if `ENABLE_DEBUG_ROUTES=false`, `/debug/test` is not registered
 
@@ -172,7 +172,7 @@ Then open:
 - `http://localhost:8900/v1/ready`
 - `http://localhost:8900/v1/version`
 
-`/debug/test` is a built-in manual test page for browser-based URL and file scan requests. It is intended for development environments and can be disabled with `ENABLE_DEBUG_ROUTES=false`.
+`/debug/test` is a built-in manual test page for browser-based URL and file scan requests. It can be enabled in production if you want a lightweight UI, and the page includes an API token field so scan actions still use the protected API routes.
 
 ## Docker
 

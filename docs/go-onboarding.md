@@ -43,7 +43,7 @@ go build -o bin/agri-gate ./cmd/api
 
 For quick manual browser testing, start the app and open `http://localhost:8900/debug/test`.
 That page submits requests directly to `POST /v1/scan/url` and `POST /v1/scan/file`.
-It is intended for development use and can be disabled with `ENABLE_DEBUG_ROUTES=false`.
+It can be disabled with `ENABLE_DEBUG_ROUTES=false`. If API-token protection is enabled, enter the token in the page before sending scan requests.
 
 ## Configuration
 

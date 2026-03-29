@@ -404,7 +404,7 @@ func extractAuthToken(r *http.Request) string {
 
 func isPublicRoute(path string) bool {
 	switch path {
-	case "/", "/v1/health", "/v1/ready", "/v1/version":
+	case "/", "/debug/test", "/v1/health", "/v1/ready", "/v1/version":
 		return true
 	default:
 		return false
