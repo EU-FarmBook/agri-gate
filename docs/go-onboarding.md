@@ -44,6 +44,8 @@ go build -o bin/agri-gate ./cmd/api
 
 The application is configured with environment variables. See [.env.example](../.env.example) for the current set.
 
+This repository does not currently auto-load `.env` files in Go code. If you keep local settings in `.env`, export them in your shell before starting the app, or use a tool that injects them into the process environment.
+
 If `DATABASE_URL` is set, the application uses PostgreSQL.
 If `DATABASE_URL` is empty, it falls back to the in-memory store.
 

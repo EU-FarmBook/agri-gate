@@ -122,10 +122,10 @@ Malware scanning policy:
 
 Future deeper checks should include:
 
-- PDF active-content and embedded-file detection
-- Office macro and embedded-object detection
 - archive recursion limits
 - media container validation
+- deep inspection for legacy binary Office formats
+- richer PDF parsing beyond token-based detection
 
 ## Persistence Model
 
@@ -149,12 +149,14 @@ The current codebase already includes:
 - dangerous download detection from response headers and final URL
 - file size and MIME validation for uploads
 - OOXML MIME inference for `.docx`, `.pptx`, and `.xlsx`
+- OOXML container validation for `.docx`, `.pptx`, and `.xlsx`
+- OOXML macro, embedded object, and embedded executable detection
+- PDF active-content and embedded-file indicator detection
 - optional ClamAV integration via `clamd`
 
 It does not yet include:
 
 - Google Web Risk integration
 - archive recursion
-- deep active-content inspection
-- document macro inspection
-- embedded executable or object detection inside container formats
+- deep inspection for legacy binary Office formats
+- full PDF object parsing
