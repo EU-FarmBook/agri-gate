@@ -46,6 +46,7 @@ Current endpoints:
 - `GET /v1/health`
 - `GET /v1/ready`
 - `GET /v1/version`
+- `GET /debug/test`
 - `POST /v1/scan/url`
 - `POST /v1/scan/file`
 - `GET /v1/jobs/{id}`
@@ -138,6 +139,24 @@ make build
 make clean
 ```
 
+If you use `.env` locally, export it into the shell before starting the app:
+
+```bash
+set -a
+source .env
+set +a
+make run
+```
+
+Then open:
+
+- `http://localhost:8080/debug/test`
+- `http://localhost:8080/v1/health`
+- `http://localhost:8080/v1/ready`
+- `http://localhost:8080/v1/version`
+
+`/debug/test` is a built-in manual test page for browser-based URL and file scan requests.
+
 ## Docker
 
 ```bash
@@ -147,6 +166,13 @@ make docker-logs
 ```
 
 The Compose stack includes `api`, `postgres`, and `clamav`. `postgres` is used when `DATABASE_URL` is configured. `clamav` is used when `CLAMD_ADDR` is configured.
+
+With Docker running, use the same browser URLs:
+
+- `http://localhost:8080/debug/test`
+- `http://localhost:8080/v1/health`
+- `http://localhost:8080/v1/ready`
+- `http://localhost:8080/v1/version`
 
 ## Current Behavior
 
