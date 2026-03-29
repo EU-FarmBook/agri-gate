@@ -62,7 +62,7 @@ Example URL request:
 Example URL call:
 
 ```bash
-curl -sS -X POST http://localhost:8080/v1/scan/url \
+curl -sS -X POST http://localhost:8900/v1/scan/url \
   -H 'Content-Type: application/json' \
   -d '{"url":"https://example.org"}'
 ```
@@ -70,7 +70,7 @@ curl -sS -X POST http://localhost:8080/v1/scan/url \
 Example file call:
 
 ```bash
-curl -sS -X POST http://localhost:8080/v1/scan/file \
+curl -sS -X POST http://localhost:8900/v1/scan/file \
   -F "file=@/path/to/file.pdf"
 ```
 
@@ -150,10 +150,10 @@ make run
 
 Then open:
 
-- `http://localhost:8080/debug/test`
-- `http://localhost:8080/v1/health`
-- `http://localhost:8080/v1/ready`
-- `http://localhost:8080/v1/version`
+- `http://localhost:8900/debug/test`
+- `http://localhost:8900/v1/health`
+- `http://localhost:8900/v1/ready`
+- `http://localhost:8900/v1/version`
 
 `/debug/test` is a built-in manual test page for browser-based URL and file scan requests.
 
@@ -165,14 +165,14 @@ make docker-down
 make docker-logs
 ```
 
-The Compose stack includes `api`, `postgres`, and `clamav`. `postgres` is used when `DATABASE_URL` is configured. `clamav` is used when `CLAMD_ADDR` is configured.
+The Compose stack includes `api`, `postgres`, and `clamav`. `postgres` is used when `DATABASE_URL` is configured. `clamav` is used when `CLAMD_ADDR` is configured. The host-exposed ports are `8900` for the API, `8901` for PostgreSQL, and `8902` for ClamAV.
 
 With Docker running, use the same browser URLs:
 
-- `http://localhost:8080/debug/test`
-- `http://localhost:8080/v1/health`
-- `http://localhost:8080/v1/ready`
-- `http://localhost:8080/v1/version`
+- `http://localhost:8900/debug/test`
+- `http://localhost:8900/v1/health`
+- `http://localhost:8900/v1/ready`
+- `http://localhost:8900/v1/version`
 
 ## Current Behavior
 

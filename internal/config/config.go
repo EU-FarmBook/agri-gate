@@ -28,7 +28,7 @@ type Config struct {
 func Load() Config {
 	return Config{
 		AppEnv:           getEnv("APP_ENV", "development"),
-		AppPort:          getEnv("APP_PORT", "8080"),
+		AppPort:          getEnv("APP_PORT", "8900"),
 		AppVersion:       getEnv("APP_VERSION", "dev"),
 		DatabaseURL:      getEnv("DATABASE_URL", ""),
 		ClamdAddr:        getEnv("CLAMD_ADDR", ""),

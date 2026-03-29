@@ -40,7 +40,7 @@ go vet ./...
 go build -o bin/agri-gate ./cmd/api
 ```
 
-For quick manual browser testing, start the app and open `http://localhost:8080/debug/test`.
+For quick manual browser testing, start the app and open `http://localhost:8900/debug/test`.
 That page submits requests directly to `POST /v1/scan/url` and `POST /v1/scan/file`.
 
 ## Configuration
