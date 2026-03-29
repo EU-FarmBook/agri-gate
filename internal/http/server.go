@@ -11,9 +11,9 @@ import (
 )
 
 type Server struct {
-	config     config.Config
-	jobs       *jobs.Service
-	logger     *log.Logger
+	config config.Config
+	jobs   *jobs.Service
+	logger *log.Logger
 }
 
 func NewServer(cfg config.Config, jobsSvc *jobs.Service, logger *log.Logger) http.Handler {

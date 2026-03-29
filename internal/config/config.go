@@ -7,13 +7,13 @@ import (
 )
 
 type Config struct {
-	AppEnv             string
-	AppPort            string
-	AppVersion         string
-	MaxRedirects       int
-	HTTPTimeout        time.Duration
-	EnableHTMLExtract  bool
-	Clock              func() time.Time
+	AppEnv            string
+	AppPort           string
+	AppVersion        string
+	MaxRedirects      int
+	HTTPTimeout       time.Duration
+	EnableHTMLExtract bool
+	Clock             func() time.Time
 }
 
 func Load() Config {
