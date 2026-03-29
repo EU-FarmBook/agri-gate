@@ -3,6 +3,7 @@ bin/
 dist/
 build/
 out/
+/api
 *.exe
 *.exe~
 *.dll
