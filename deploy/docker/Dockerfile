@@ -17,6 +17,6 @@ RUN apk add --no-cache ca-certificates
 
 COPY --from=build /out/agri-gate /usr/local/bin/agri-gate
 
-EXPOSE 8080
+EXPOSE 8900
 
 CMD ["/usr/local/bin/agri-gate"]

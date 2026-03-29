@@ -195,6 +195,54 @@ With Docker running, use the same browser URLs:
 - `http://localhost:8900/v1/ready`
 - `http://localhost:8900/v1/version`
 
+## Online Deployment
+
+The repo now includes a Traefik-oriented production example in [deploy/online/docker-compose.online.yml](deploy/online/docker-compose.online.yml) and [deploy/online/.env.online.example](deploy/online/.env.online.example).
+
+`APP_VERSION` does not have to stay `dev`. Set it explicitly in `.env`, `.env.online`, Docker, or CI/CD. A normal production value would look like:
+
+```bash
+APP_VERSION=1.0.0
+```
+
+Suggested deployment flow:
+
+1. Build and push the image.
+
+```bash
+git push
+make docker-build-image IMAGE=ghcr.io/eu-farmbook/agri-gate:latest
+make docker-push-image IMAGE=ghcr.io/eu-farmbook/agri-gate:latest
+```
+
+2. On the server, create the deployment directory and copy the templates.
+
+```bash
+mkdir -p /opt/docker/agri_gate
+cd /opt/docker/agri_gate
+cp /path/to/repo/deploy/online/docker-compose.online.yml docker-compose.yml
+cp /path/to/repo/deploy/online/.env.online.example .env.online
+```
+
+3. Edit `.env.online`.
+
+- set a real `APP_VERSION`, for example `1.0.0`
+- set a real `API_AUTH_TOKEN`
+- set a real `POSTGRES_PASSWORD`
+- keep `DATABASE_URL` aligned with that same password
+- keep `ENABLE_DEBUG_ROUTES=false`
+
+4. Start it.
+
+```bash
+docker pull ghcr.io/eu-farmbook/agri-gate:latest
+docker compose pull
+docker compose up -d
+docker compose logs -f agri_gate
+```
+
+The example router uses `agrigate.nexavion.com`. Change the Traefik host rule if you want a different subdomain.
+
 ## Current Behavior
 
 `POST /v1/scan/url` currently performs:

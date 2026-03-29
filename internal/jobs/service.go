@@ -50,7 +50,9 @@ func (s *Service) SubmitURLScan(ctx context.Context, req SubmitURLScanRequest) (
 	}
 
 	now := s.now()
+	start := time.Now()
 	result := s.urlScanner.Scan(ctx, req.URL, now)
+	result.Details = withDuration(result.Details, time.Since(start))
 
 	job := domain.Job{
 		ID:          newJobID(),
@@ -89,7 +91,9 @@ func (s *Service) SubmitFileScan(ctx context.Context, input domain.FileScanInput
 	}
 
 	now := s.now()
+	start := time.Now()
 	result := s.fileScanner.Scan(ctx, input, now)
+	result.Details = withDuration(result.Details, time.Since(start))
 
 	job := domain.Job{
 		ID:          newJobID(),
@@ -126,4 +130,12 @@ func newJobID() string {
 		return "job-fallback"
 	}
 	return "job_" + hex.EncodeToString(bytes[:])
+}
+
+func withDuration(details map[string]any, duration time.Duration) map[string]any {
+	if details == nil {
+		details = make(map[string]any)
+	}
+	details["scan_duration_ms"] = duration.Milliseconds()
+	return details
 }

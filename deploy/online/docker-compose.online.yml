@@ -1,0 +1,55 @@
+services:
+  agri_gate:
+    image: ghcr.io/eu-farmbook/agri-gate:latest
+    container_name: agri_gate
+    env_file:
+      - .env.online
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - traefik-net
+      - agri-gate-internal
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.agri-gate.rule=Host(`agrigate.nexavion.com`)"
+      - "traefik.http.routers.agri-gate.entrypoints=websecure"
+      - "traefik.http.routers.agri-gate.tls=true"
+      - "traefik.http.routers.agri-gate.tls.certresolver=letsencrypt"
+      - "traefik.http.services.agri-gate.loadbalancer.server.port=8900"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: agri_gate_postgres
+    env_file:
+      - .env.online
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agri_gate
+      POSTGRES_USER: agri_gate
+    volumes:
+      - agri_gate_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agri_gate -d agri_gate"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    networks:
+      - agri-gate-internal
+
+  clamav:
+    image: clamav/clamav:stable
+    container_name: agri_gate_clamav
+    restart: unless-stopped
+    networks:
+      - agri-gate-internal
+
+volumes:
+  agri_gate_postgres_data:
+
+networks:
+  traefik-net:
+    external: true
+  agri-gate-internal:
