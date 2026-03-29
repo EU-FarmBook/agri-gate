@@ -115,3 +115,11 @@ func TestScanReturnsErrorInStrictModeOnMalwareScanFailure(t *testing.T) {
 		t.Fatalf("expected file scan error, got %q", result.ReasonCode)
 	}
 }
+
+func TestInferMIMETypeUsesOOXMLExtensionForZipPayloads(t *testing.T) {
+	got := inferMIMEType("manual.docx", "application/zip")
+	want := "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}

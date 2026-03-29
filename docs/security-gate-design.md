@@ -2,28 +2,28 @@
 
 ## Goal
 
-Build a centralized internal service that other systems can call to validate and scan URLs and files before ingestion.
+Build a centralized internal service that other systems can call to decide:
 
-The service should answer security-first questions such as:
+- is this URL safe to follow
+- is this file safe to store
+
+The service is security-focused. It is not responsible for semantic relevance, moderation, transcription, or OCR.
+
+## Core Questions
+
+For URLs:
 
 - does the URL resolve successfully
 - does it redirect somewhere unsafe
-- does it serve or trigger harmful downloads
-- does an uploaded file contain malware or embedded active content
-- does the fetched or uploaded content contain harmful, malicious, or unsafe material
+- does it trigger a harmful download
+- does it point to an internal or private network target
 
-## Current Direction
+For files:
 
-The repository is now oriented around security and safety screening, not domain relevance classification.
-
-The major capability areas are:
-
-- URL resolution and redirect safety
-- dangerous download detection
-- file malware scanning
-- file-type validation
-- harmful-content analysis for text and media
-- persistence and audit trail
+- is the file within size limits
+- does its detected type match an allowed family
+- does it contain malware
+- does it contain obvious active content or embedded executable risk
 
 ## Recommended Stack
 
@@ -32,47 +32,30 @@ The major capability areas are:
 - storage: PostgreSQL
 - file malware scanning: ClamAV via `clamd`
 - URL reputation: Google Web Risk
-- content extraction:
-  - HTML parsing for webpages
-  - document extraction for PDF, DOCX, PPTX, XLSX, TXT, CSV, TSV
-  - OCR for images where needed
-  - speech-to-text for audio and video where needed
-- harmful-content classification:
-  - text moderation/classification
-  - image moderation
-  - audio/video moderation after transcription or frame extraction
 
 ## High-Level Architecture
 
 Suggested split:
 
 - API layer
-- URL security engine
-- file security engine
-- content extraction engine
-- harmful-content classification engine
+- URL safety engine
+- file safety engine
 - policy and audit engine
 
 Suggested Go layout:
 
 ```text
 /cmd/api
-/cmd/worker
 /internal/http
 /internal/config
 /internal/domain
 /internal/urlscan
 /internal/filescan
-/internal/extract
-/internal/moderation
-/internal/webrisk
-/internal/clamav
 /internal/storage
-/internal/audit
 /internal/jobs
 ```
 
-## URL Security Engine
+## URL Safety Engine
 
 Always-on checks:
 
@@ -111,7 +94,7 @@ Blocked file families should include:
 - scripts: `.bat`, `.cmd`, `.ps1`, `.sh`, `.js`
 - archives and disk images: `.zip`, `.rar`, `.7z`, `.tar`, `.gz`, `.bz2`, `.xz`, `.iso`
 
-## File Security Engine
+## File Safety Engine
 
 Supported upload families should include:
 
@@ -126,15 +109,16 @@ Core file checks:
 - filename and extension recording
 - MIME detection
 - allowlist validation
+- extension-aware MIME normalization for OOXML containers
 - SHA-256 hashing
 - malware scanning
 
 Malware scanning policy:
 
-- clean => continue
-- infected => `malicious`, block, quarantine
-- scan error in strict mode => block as `error`
-- scan error in non-strict mode => record the scanner failure and continue with policy result
+- clean: continue
+- infected: `malicious`, block, quarantine
+- scan error in strict mode: block as `error`
+- scan error in non-strict mode: record the scanner failure and continue with policy result
 
 Future deeper checks should include:
 
@@ -143,36 +127,14 @@ Future deeper checks should include:
 - archive recursion limits
 - media container validation
 
-## Harmful-Content Analysis
-
-Malware scanning is not sufficient for harmful-content detection.
-
-Separate analysis is needed for:
-
-- violent or abusive text
-- malicious or unsafe instructions
-- harmful imagery
-- harmful spoken content in audio and video
-
-Suggested approach:
-
-1. Extract text from webpages and supported documents.
-2. Use OCR for images when text may be embedded.
-3. Use transcription for audio and video.
-4. Run moderation or classification over the extracted text and media.
-5. Return structured policy results in addition to malware results.
-
 ## Persistence Model
 
 Suggested tables:
 
 - `scan_jobs`
-- `scan_results`
 - `scan_events`
-- `scan_artifacts`
-- `quarantine_records`
 
-Current state belongs on the job or result row. Full event history belongs in an append-only event table.
+Current state belongs on the job row. Full event history belongs in an append-only event table.
 
 ## Current Repository Implementation
 
@@ -186,12 +148,13 @@ The current codebase already includes:
 - redirect-aware validation
 - dangerous download detection from response headers and final URL
 - file size and MIME validation for uploads
+- OOXML MIME inference for `.docx`, `.pptx`, and `.xlsx`
 - optional ClamAV integration via `clamd`
 
 It does not yet include:
 
-- semantic harmful-content detection
-- document content extraction
-- OCR
-- audio/video transcription
 - Google Web Risk integration
+- archive recursion
+- deep active-content inspection
+- document macro inspection
+- embedded executable or object detection inside container formats

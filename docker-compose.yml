@@ -11,7 +11,6 @@ services:
       CLAMD_ADDR: clamav:3310
       MAX_REDIRECTS: 5
       HTTP_TIMEOUT_SECONDS: 10
-      ENABLE_HTML_EXTRACTION: "false"
     ports:
       - "8080:8080"
     depends_on:

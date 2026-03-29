@@ -1,13 +1,13 @@
 # Agri Gate
 
-Agri Gate is a security screening service for URLs and uploaded files before downstream ingestion.
+Agri Gate is a security screening service for URLs and uploaded files before downstream storage or ingestion.
 
-Its current purpose is to answer questions such as:
+Its purpose is narrow:
 
-- does a URL resolve successfully
-- does it redirect somewhere unsafe
-- does it attempt to download harmful file types such as executables, installers, scripts, archives, or disk images
-- does an uploaded file contain malware or other obvious security risk indicators
+- determine whether a URL is safe to follow
+- determine whether an uploaded file is safe to store
+
+It is not responsible for semantic relevance checks or content moderation.
 
 ## Current Status
 
@@ -21,7 +21,7 @@ Implemented:
 - redirect-aware URL validation with maximum redirect enforcement
 - dangerous download detection from final URL path and HTTP response headers
 - SSRF-oriented host blocking for localhost and internal/private addresses
-- file size, MIME type, and SHA-256 validation for uploads
+- file size, MIME type, extension-aware MIME inference, and SHA-256 validation for uploads
 - optional ClamAV-based malware scanning through `clamd`
 - PostgreSQL-backed job and event persistence when `DATABASE_URL` is set
 - in-memory fallback storage when `DATABASE_URL` is not set
@@ -29,10 +29,10 @@ Implemented:
 
 Not implemented yet:
 
-- semantic harmful-content detection for webpages, documents, images, audio, or video
 - Google Web Risk integration
+- archive recursion and archive bomb controls
 - deeper document inspection for macros, embedded executables, or active content
-- OCR, transcription, or text extraction pipelines
+- embedded object detection inside PDFs and Office files
 - batch submission and worker flow
 
 ## API
@@ -76,7 +76,7 @@ The default MIME allowlist is aligned with the current frontend upload policy an
 - documents: PDF, TXT, CSV, TSV, DOC, DOCX, PPT, PPTX, XLS, XLSX
 - images: JPEG, PNG
 - audio: MP3, WAV, M4A
-- video: MP4, AVI, MOV, WMV, MPEG, MKV, FLV, WEBM, 3GP, MTS-like transport streams, and DVD/VOB-style content types where detectable
+- video: MP4, AVI, MOV, WMV, MPEG, MKV, FLV, WEBM, 3GP, MPEG-TS-style payloads, and DVD/VOB-style content types where detectable
 
 The exact allowlist is configurable through `ALLOWED_FILE_TYPES`.
 
@@ -87,7 +87,7 @@ The exact allowlist is configurable through `ALLOWED_FILE_TYPES`.
 
 ## Configuration
 
-The application currently reads:
+The application reads:
 
 - `APP_ENV`
 - `APP_PORT`
@@ -155,15 +155,16 @@ The Compose stack includes `api`, `postgres`, and `clamav`. `postgres` is used w
 - multipart upload handling with the `file` field
 - size enforcement
 - MIME detection and allowlist validation
+- extension-aware MIME inference for OOXML formats
 - SHA-256 hashing
 - optional ClamAV malware scanning
 
 ## Limitations
 
-- no semantic harmful-content detection yet
-- no webpage text extraction or moderation yet
+- legacy binary Office formats such as `.doc`, `.ppt`, and `.xls` are accepted by policy but are not deeply inspected yet
 - no document macro inspection yet
-- no OCR, speech-to-text, or video-content analysis yet
+- no archive recursion or nested container inspection yet
+- no embedded executable detection inside Office or PDF containers yet
 - file scanning currently supports synchronous multipart uploads only
 - persistence is durable only when PostgreSQL is enabled
 
@@ -177,8 +178,8 @@ The Compose stack includes `api`, `postgres`, and `clamav`. `postgres` is used w
 
 Recommended next engineering steps:
 
-1. Add content extraction for HTML, documents, images, audio, and video.
-2. Add harmful-content classification for extracted text and media.
-3. Add deeper file inspection for macros, embedded executables, and active content.
-4. Add Google Web Risk integration.
+1. Add archive inspection with recursion and decompression limits.
+2. Add PDF active-content and embedded-file detection.
+3. Add Office macro and embedded-object detection.
+4. Add Google Web Risk integration for URL reputation.
 5. Add explicit database migrations.

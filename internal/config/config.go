@@ -8,19 +8,18 @@ import (
 )
 
 type Config struct {
-	AppEnv            string
-	AppPort           string
-	AppVersion        string
-	DatabaseURL       string
-	ClamdAddr         string
-	FileScanEnabled   bool
-	FileScanStrict    bool
-	MaxFileSizeBytes  int64
-	AllowedFileTypes  []string
-	MaxRedirects      int
-	HTTPTimeout       time.Duration
-	EnableHTMLExtract bool
-	Clock             func() time.Time
+	AppEnv           string
+	AppPort          string
+	AppVersion       string
+	DatabaseURL      string
+	ClamdAddr        string
+	FileScanEnabled  bool
+	FileScanStrict   bool
+	MaxFileSizeBytes int64
+	AllowedFileTypes []string
+	MaxRedirects     int
+	HTTPTimeout      time.Duration
+	Clock            func() time.Time
 }
 
 func Load() Config {
@@ -63,10 +62,9 @@ func Load() Config {
 			"video/mp2t",
 			"video/dvd",
 		}),
-		MaxRedirects:      getEnvInt("MAX_REDIRECTS", 5),
-		HTTPTimeout:       time.Duration(getEnvInt("HTTP_TIMEOUT_SECONDS", 10)) * time.Second,
-		EnableHTMLExtract: getEnvBool("ENABLE_HTML_EXTRACTION", false),
-		Clock:             time.Now().UTC,
+		MaxRedirects: getEnvInt("MAX_REDIRECTS", 5),
+		HTTPTimeout:  time.Duration(getEnvInt("HTTP_TIMEOUT_SECONDS", 10)) * time.Second,
+		Clock:        time.Now().UTC,
 	}
 }
 

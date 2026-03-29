@@ -66,7 +66,7 @@ func (s *Scanner) Scan(ctx context.Context, input domain.FileScanInput, now time
 	size := int64(len(input.Content))
 	filename := input.Filename
 	ext := strings.ToLower(filepath.Ext(filename))
-	mimeType := normalizeMIME(http.DetectContentType(input.Content))
+	mimeType := inferMIMEType(filename, normalizeMIME(http.DetectContentType(input.Content)))
 	hash := sha256.Sum256(input.Content)
 
 	details := map[string]any{
@@ -97,37 +97,35 @@ func (s *Scanner) Scan(ctx context.Context, input domain.FileScanInput, now time
 
 	if s.malwareScanner == nil {
 		details["malware_scan"] = "not_configured"
-		return result(now, domain.StatusClean, "file_policy", "file_validated", "File passed validation checks.", details)
-	}
-
-	verdict, err := s.malwareScanner.Scan(ctx, filename, input.Content)
-	if err != nil {
-		details["malware_scan"] = "error"
-		details["malware_scan_error"] = err.Error()
-		if s.strict {
-			return result(now, domain.StatusError, "clamav", "file_scan_error", "Malware scan failed.", details)
+	} else {
+		verdict, err := s.malwareScanner.Scan(ctx, filename, input.Content)
+		if err != nil {
+			details["malware_scan"] = "error"
+			details["malware_scan_error"] = err.Error()
+			if s.strict {
+				return result(now, domain.StatusError, "clamav", "file_scan_error", "Malware scan failed.", details)
+			}
+		} else if verdict.Infected {
+			details["malware_scan"] = "infected"
+			details["threat"] = verdict.Threat
+			return domain.ScanResult{
+				Status:        domain.StatusMalicious,
+				Scope:         domain.ScopeFile,
+				PrimaryEngine: "clamav",
+				CheckedAt:     now,
+				Quarantined:   true,
+				Escalation:    true,
+				ReasonCode:    "file_malware_detected",
+				Reason:        "Malware detected in uploaded file.",
+				Details:       details,
+			}
 		}
-		return result(now, domain.StatusClean, "file_policy", "file_validated", "File passed validation checks, but malware scan could not be completed.", details)
-	}
-
-	if verdict.Infected {
-		details["malware_scan"] = "infected"
-		details["threat"] = verdict.Threat
-		return domain.ScanResult{
-			Status:        domain.StatusMalicious,
-			Scope:         domain.ScopeFile,
-			PrimaryEngine: "clamav",
-			CheckedAt:     now,
-			Quarantined:   true,
-			Escalation:    true,
-			ReasonCode:    "file_malware_detected",
-			Reason:        "Malware detected in uploaded file.",
-			Details:       details,
+		if details["malware_scan"] == "skipped" {
+			details["malware_scan"] = "clean"
 		}
 	}
 
-	details["malware_scan"] = "clean"
-	return result(now, domain.StatusClean, "clamav", "file_clean", "File passed validation and malware scanning.", details)
+	return result(now, domain.StatusClean, "file_policy", "file_validated", "File passed validation checks.", details)
 }
 
 func result(now time.Time, status, engine, code, reason string, details map[string]any) domain.ScanResult {
@@ -224,4 +222,20 @@ func normalizeMIME(value string) string {
 		return strings.ToLower(mediaType)
 	}
 	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func inferMIMEType(filename, detected string) string {
+	ext := strings.ToLower(filepath.Ext(filename))
+	switch {
+	case detected == "application/zip" || detected == "application/octet-stream":
+		switch ext {
+		case ".docx":
+			return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+		case ".pptx":
+			return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+		case ".xlsx":
+			return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+		}
+	}
+	return detected
 }
