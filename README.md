@@ -1,14 +1,13 @@
 # Agri Gate
 
-Agri Gate is an internal gateway service for validating URLs and files before downstream ingestion.
+Agri Gate is a security screening service for URLs and uploaded files before downstream ingestion.
 
-Its intended responsibilities are:
+Its current purpose is to answer questions such as:
 
-- security validation for URLs and uploaded files
-- blocking unsafe or policy-violating inputs early
-- agriculture relevance classification
-- structured scan decisions for downstream services
-- auditability of checks and outcomes
+- does a URL resolve successfully
+- does it redirect somewhere unsafe
+- does it attempt to download harmful file types such as executables, installers, scripts, archives, or disk images
+- does an uploaded file contain malware or other obvious security risk indicators
 
 ## Current Status
 
@@ -16,26 +15,25 @@ This repository contains an early runnable Go implementation.
 
 Implemented:
 
-- HTTP API
-- synchronous `POST /v1/scan/url`
-- deterministic URL validation and policy checks
-- live outbound URL fetching with timeout-bound requests
-- redirect-aware validation with maximum redirect enforcement
-- response-based dangerous download detection from headers and final URL
-- basic agriculture relevance scoring from URL text
+- `POST /v1/scan/url`
+- `POST /v1/scan/file`
+- live URL fetches with timeout-bound requests
+- redirect-aware URL validation with maximum redirect enforcement
+- dangerous download detection from final URL path and HTTP response headers
+- SSRF-oriented host blocking for localhost and internal/private addresses
+- file size, MIME type, and SHA-256 validation for uploads
+- optional ClamAV-based malware scanning through `clamd`
 - PostgreSQL-backed job and event persistence when `DATABASE_URL` is set
 - in-memory fallback storage when `DATABASE_URL` is not set
 - health, readiness, version, and job lookup endpoints
-- Docker Compose scaffolding
-- basic unit tests
 
 Not implemented yet:
 
-- file upload scanning
-- ClamAV integration
+- semantic harmful-content detection for webpages, documents, images, audio, or video
 - Google Web Risk integration
+- deeper document inspection for macros, embedded executables, or active content
+- OCR, transcription, or text extraction pipelines
 - batch submission and worker flow
-- full AGROVOC-backed relevance engine
 
 ## API
 
@@ -45,23 +43,42 @@ Current endpoints:
 - `GET /v1/ready`
 - `GET /v1/version`
 - `POST /v1/scan/url`
+- `POST /v1/scan/file`
 - `GET /v1/jobs/{id}`
 
-Example request:
+Example URL request:
 
 ```json
 {
-  "url": "https://www.fao.org"
+  "url": "https://example.org"
 }
 ```
 
-Example call:
+Example URL call:
 
 ```bash
 curl -sS -X POST http://localhost:8080/v1/scan/url \
   -H 'Content-Type: application/json' \
-  -d '{"url":"https://www.fao.org"}'
+  -d '{"url":"https://example.org"}'
 ```
+
+Example file call:
+
+```bash
+curl -sS -X POST http://localhost:8080/v1/scan/file \
+  -F "file=@/path/to/file.pdf"
+```
+
+## Supported File Policy
+
+The default MIME allowlist is aligned with the current frontend upload policy and covers:
+
+- documents: PDF, TXT, CSV, TSV, DOC, DOCX, PPT, PPTX, XLS, XLSX
+- images: JPEG, PNG
+- audio: MP3, WAV, M4A
+- video: MP4, AVI, MOV, WMV, MPEG, MKV, FLV, WEBM, 3GP, MTS-like transport streams, and DVD/VOB-style content types where detectable
+
+The exact allowlist is configurable through `ALLOWED_FILE_TYPES`.
 
 ## Requirements
 
@@ -76,9 +93,13 @@ The application currently reads:
 - `APP_PORT`
 - `APP_VERSION`
 - `DATABASE_URL`
+- `CLAMD_ADDR`
+- `FILE_SCAN_ENABLED`
+- `FILE_SCAN_STRICT`
+- `MAX_FILE_SIZE_BYTES`
+- `ALLOWED_FILE_TYPES`
 - `MAX_REDIRECTS`
 - `HTTP_TIMEOUT_SECONDS`
-- `ENABLE_HTML_EXTRACTION`
 
 Create a local env file if needed:
 
@@ -92,128 +113,72 @@ Storage behavior:
 - if `DATABASE_URL` is set, the application uses PostgreSQL
 - if `DATABASE_URL` is empty, it uses the in-memory store
 
-## Local Development
+File scanning behavior:
 
-Run the API:
+- if `CLAMD_ADDR` is set, the application attempts malware scanning through `clamd`
+- if `CLAMD_ADDR` is empty, file scans still enforce size and MIME policy but skip malware scanning
+
+## Local Development
 
 ```bash
 make run
-```
-
-Run tests:
-
-```bash
 make test
-```
-
-Format code:
-
-```bash
 make fmt
-```
-
-Run the built-in lint baseline:
-
-```bash
 make lint
-```
-
-Build the binary:
-
-```bash
 make build
-```
-
-Clean build output:
-
-```bash
 make clean
 ```
 
 ## Docker
 
-Start the local stack:
-
 ```bash
 make docker-up
-```
-
-Stop the local stack:
-
-```bash
 make docker-down
-```
-
-Follow API logs:
-
-```bash
 make docker-logs
 ```
 
-The Compose stack includes:
-
-- `api`
-- `postgres`
-- `clamav`
-
-`postgres` is used by the API when `DATABASE_URL` is configured. `clamav` is included as part of the target architecture but is not yet integrated into the application.
-
-## Repository Layout
-
-```text
-.
-├── cmd/api
-├── deploy/docker
-├── deploy/postgres
-├── docs
-├── internal/config
-├── internal/domain
-├── internal/http
-├── internal/jobs
-├── internal/storage
-├── internal/urlscan
-├── pkg/types
-├── .env.example
-├── docker-compose.yml
-├── go.mod
-└── Makefile
-```
+The Compose stack includes `api`, `postgres`, and `clamav`. `postgres` is used when `DATABASE_URL` is configured. `clamav` is used when `CLAMD_ADDR` is configured.
 
 ## Current Behavior
 
-Current URL checks include:
+`POST /v1/scan/url` currently performs:
 
-- URL parsing
-- HTTPS-only enforcement
-- rejection of embedded credentials
-- blocking localhost and internal/private hosts
+- URL parsing and HTTPS enforcement
+- embedded credential rejection
+- internal/private host blocking
 - live reachability checks using outbound HTTP requests
 - redirect validation up to the configured maximum
-- blocking dangerous download extensions such as `.exe` and `.zip`
-- blocking attachment-style and blocked binary content types from HTTP responses
-- simple agriculture keyword matching from hostname and path
+- dangerous download detection from URL path, `Content-Type`, and `Content-Disposition`
 
-For `POST /v1/scan/url`, the application validates the request, produces a `ScanResult`, stores the job and event, and returns the result synchronously.
+`POST /v1/scan/file` currently performs:
+
+- multipart upload handling with the `file` field
+- size enforcement
+- MIME detection and allowlist validation
+- SHA-256 hashing
+- optional ClamAV malware scanning
 
 ## Limitations
 
-- no file scanning endpoint yet
-- no HTML content extraction yet
-- relevance scoring is intentionally simplistic
+- no semantic harmful-content detection yet
+- no webpage text extraction or moderation yet
+- no document macro inspection yet
+- no OCR, speech-to-text, or video-content analysis yet
+- file scanning currently supports synchronous multipart uploads only
 - persistence is durable only when PostgreSQL is enabled
 
 ## Documentation
 
 - Architecture and target design: [docs/security-gate-design.md](docs/security-gate-design.md)
-- Go onboarding: [docs/go-onboarding.md](docs/go-onboarding.md)
+- Go notes: [docs/go-onboarding.md](docs/go-onboarding.md)
 - PostgreSQL persistence: [docs/postgres-persistence.md](docs/postgres-persistence.md)
 
 ## Next Steps
 
 Recommended next engineering steps:
 
-1. Add HTML extraction and richer text-based agriculture relevance scoring.
-2. Add file upload scanning and ClamAV integration.
-3. Add Google Web Risk integration.
-4. Add structured logging and metrics.
+1. Add content extraction for HTML, documents, images, audio, and video.
+2. Add harmful-content classification for extracted text and media.
+3. Add deeper file inspection for macros, embedded executables, and active content.
+4. Add Google Web Risk integration.
 5. Add explicit database migrations.

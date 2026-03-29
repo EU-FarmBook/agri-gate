@@ -2,58 +2,58 @@
 
 ## Goal
 
-Build a centralized internal service that many other services can call to validate and scan files and URLs before ingestion.
+Build a centralized internal service that other systems can call to validate and scan URLs and files before ingestion.
 
-This service should:
-- accept files and URLs
-- block obviously unsafe or policy-violating inputs early
-- run live reputation and malware checks where configured
-- classify agriculture relevance
-- return structured decisions that are easy for downstream services to consume
-- record both current state and a full audit trail
+The service should answer security-first questions such as:
 
-## Recommended stack
+- does the URL resolve successfully
+- does it redirect somewhere unsafe
+- does it serve or trigger harmful downloads
+- does an uploaded file contain malware or embedded active content
+- does the fetched or uploaded content contain harmful, malicious, or unsafe material
 
-Primary recommendation:
+## Current Direction
+
+The repository is now oriented around security and safety screening, not domain relevance classification.
+
+The major capability areas are:
+
+- URL resolution and redirect safety
+- dangerous download detection
+- file malware scanning
+- file-type validation
+- harmful-content analysis for text and media
+- persistence and audit trail
+
+## Recommended Stack
+
 - language: Go
-- router: `chi`
-- config: environment variables plus a small config package
+- router: `chi` or standard `net/http`
 - storage: PostgreSQL
 - file malware scanning: ClamAV via `clamd`
 - URL reputation: Google Web Risk
-- packaging: Docker Compose for local development, containerized deployment in production
+- content extraction:
+  - HTML parsing for webpages
+  - document extraction for PDF, DOCX, PPTX, XLSX, TXT, CSV, TSV
+  - OCR for images where needed
+  - speech-to-text for audio and video where needed
+- harmful-content classification:
+  - text moderation/classification
+  - image moderation
+  - audio/video moderation after transcription or frame extraction
 
-Why Go:
-- strong fit for I/O-heavy services
-- efficient concurrency
-- lower memory use than Python under load
-- straightforward streaming of uploads and downloads
-- clean timeout and cancellation model
-- simple Docker deployment
-
-Framework ranking for this problem:
-1. Go with `chi`
-2. FastAPI
-3. Rust
-4. Django
-5. Flask
-
-FastAPI remains the best Python fallback if implementation speed and team familiarity matter more than runtime efficiency.
-
-## Why not Django
-
-Django is excellent for admin-heavy product applications, but this service is not primarily a CRUD platform. It is a scanning and policy gateway. The core workload is network I/O, stream handling, external scanner integration, policy evaluation, and structured response generation.
-
-## High-level architecture
+## High-Level Architecture
 
 Suggested split:
+
 - API layer
 - URL security engine
 - file security engine
-- agriculture relevance engine
+- content extraction engine
+- harmful-content classification engine
 - policy and audit engine
 
-Recommended Go layout:
+Suggested Go layout:
 
 ```text
 /cmd/api
@@ -61,358 +61,137 @@ Recommended Go layout:
 /internal/http
 /internal/config
 /internal/domain
-/internal/policy
 /internal/urlscan
 /internal/filescan
-/internal/agri
+/internal/extract
+/internal/moderation
 /internal/webrisk
 /internal/clamav
 /internal/storage
 /internal/audit
-/internal/metrics
-/internal/observability
 /internal/jobs
-/pkg/types
-/deploy/docker
 ```
 
-## Core decision model
+## URL Security Engine
 
-Canonical statuses:
-- `clean`
-- `malicious`
-- `error`
-- `skipped`
+Always-on checks:
 
-Every result should also include:
-- source scope: `url` or `file`
-- primary engine
-- checked timestamp
-- quarantined flag
-- escalation flag
-- `reason_code`
-- human-readable reason
-- structured details
-
-The service should store:
-- current job/result state
-- append-only event history for auditability
-
-## URL security engine
-
-The URL engine should be deterministic first, then reputation-enhanced.
-
-### Always-on checks
-
-These checks should run even if no external scanner is configured:
 - URL parsing and normalization
-- `https://` enforcement
+- HTTPS enforcement
 - rejection of embedded credentials
 - host safety checks
 - redirect-aware validation
-- reachability and broken-link detection
+- reachability detection
 - dangerous direct-download detection
-- shortened-link checks on both the input URL and final resolved URL
 
-### Host and SSRF protections
+Host and SSRF protections:
 
-Reject:
-- localhost
-- `.local`
-- private IPs
-- loopback
-- link-local
-- multicast
-- reserved ranges
-- internal-resolving hosts after DNS resolution
+- reject localhost
+- reject `.local`
+- reject private, loopback, link-local, multicast, and unspecified IP ranges
+- enforce these checks both before fetch and across redirects
 
-This should be enforced both before making requests and after following redirects.
+Redirect handling:
 
-### Redirect handling
+- validate the original URL
+- validate every redirect hop
+- block when redirect depth exceeds the configured maximum
+- block when a redirect ends at an unsafe host or harmful payload
 
-Validate:
-- original input URL
-- every redirect hop
-- final resolved URL
+Dangerous download detection should use:
 
-Block if:
-- any hop is unsafe
-- redirect depth exceeds the configured maximum
-- the final URL resolves to an unsafe host or payload
+- final URL path and extension
+- `Content-Disposition`
+- `Content-Type`
+- whether the target behaves like a download endpoint rather than a normal webpage
 
-### Reachability and broken URLs
+Blocked file families should include:
 
-Classify failures explicitly:
-- DNS resolution failure
-- timeout
-- TLS error
-- too many redirects
-- 4xx or 5xx response
-- blocked by policy
-
-### Secure transport checks
-
-At minimum:
-- only `https://`
-- standard TLS verification passes
-- hostname validation passes
-
-### Dangerous download detection
-
-Treat a URL as a direct-download or auto-download risk when one or more of the following are true:
-- final response is a binary payload rather than a webpage
-- `Content-Disposition` is attachment
-- final path clearly points to an executable, installer, archive, script, or disk image
-- `Content-Type` indicates executable, archive, installer, or unsupported binary content
-- redirect chain ends at a file-serving endpoint instead of a normal page
-
-Likely blocked types:
 - executables and installers: `.exe`, `.msi`, `.apk`, `.dmg`, `.pkg`, `.jar`
 - scripts: `.bat`, `.cmd`, `.ps1`, `.sh`, `.js`
-- archives and images: `.zip`, `.rar`, `.7z`, `.tar`, `.gz`, `.bz2`, `.xz`, `.iso`
+- archives and disk images: `.zip`, `.rar`, `.7z`, `.tar`, `.gz`, `.bz2`, `.xz`, `.iso`
 
-Older dynamic page routes can remain allowed if they behave like webpages:
-- `.php`
-- `.asp`
-- `.aspx`
-- `.jsp`
-- `.cgi`
-- `.cfm`
+## File Security Engine
 
-### Google Web Risk
+Supported upload families should include:
 
-Use Google Web Risk for:
-- malware
-- social engineering
-- unwanted software
+- documents: PDF, TXT, CSV, TSV, DOC, DOCX, PPT, PPTX, XLS, XLSX
+- images: JPEG, PNG
+- audio: MP3, WAV, M4A
+- video: MP4, AVI, MOV, WMV, MPEG, MPG, MKV, FLV, WEBM, 3GP, MTS, M2TS, VOB, RMVB
 
-Recommended policy:
-- flagged result => `malicious`
-- lookup error in strict mode => block as `error`
-- lookup error in non-strict mode => record `error`, do not automatically block
+Core file checks:
 
-### Browser-style auto-download detection
+- max size enforcement
+- filename and extension recording
+- MIME detection
+- allowlist validation
+- SHA-256 hashing
+- malware scanning
 
-For v1, do not use full browser automation by default.
+Malware scanning policy:
 
-Use server-observable signals first:
-- response content type
-- content disposition
-- final URL path
-- redirect target
-
-If deeper behavioral analysis is needed later, add a separate Playwright-based sandbox worker rather than mixing browser automation into the first version of the service.
-
-## File security engine
-
-### Ingress handling
-
-On upload:
-- enforce max size
-- stream to temp file
-- compute a hash while streaming
-- sniff real MIME type
-- compare extension and MIME
-
-### Malware scanning
-
-Preferred:
-- ClamAV via `clamd`
-
-Fallback:
-- `clamscan`
-
-Recommended behavior:
 - clean => continue
 - infected => `malicious`, block, quarantine
 - scan error in strict mode => block as `error`
-- scan error in non-strict mode => record `error`, do not automatically block
+- scan error in non-strict mode => record the scanner failure and continue with policy result
 
-### File-type validation
+Future deeper checks should include:
 
-Policy should validate:
-- declared filename extension
-- sniffed MIME type
-- configured allowlist
-- file size cap
-- type-specific structural limits
+- PDF active-content and embedded-file detection
+- Office macro and embedded-object detection
+- archive recursion limits
+- media container validation
 
-### Type-specific checks
+## Harmful-Content Analysis
 
-Examples:
-- PDFs: page count, parseability, encryption presence, malformed structure
-- Office docs: structural sanity, future option for macro detection
-- images: dimensions, corruption checks
-- audio/video: metadata probe, duration cap
+Malware scanning is not sufficient for harmful-content detection.
 
-## Agriculture relevance engine
+Separate analysis is needed for:
 
-Use deterministic domain scoring first, not an LLM-first design.
+- violent or abusive text
+- malicious or unsafe instructions
+- harmful imagery
+- harmful spoken content in audio and video
 
-Primary source:
-- AGROVOC
+Suggested approach:
 
-Optional enrichment:
-- CABI-aligned taxonomies or curated domain dictionaries, subject to licensing and integration constraints
+1. Extract text from webpages and supported documents.
+2. Use OCR for images when text may be embedded.
+3. Use transcription for audio and video.
+4. Run moderation or classification over the extracted text and media.
+5. Return structured policy results in addition to malware results.
 
-### Suggested relevance pipeline
-
-1. Extract text safely from the page or file.
-2. Normalize and tokenize.
-3. Match against AGROVOC preferred labels and alternate labels.
-4. Score title, headings, and body matches.
-5. Penalize clearly non-agricultural topics.
-6. Return one of:
-   - `agri_relevant`
-   - `uncertain`
-   - `non_agri`
-
-### Output should include
-
-- score
-- matched terms
-- matched concept families
-- concise explanation
-
-## API shape
-
-Recommended endpoints:
-- `POST /v1/scan/url`
-- `POST /v1/scan/file`
-- `POST /v1/scan/batch/urls`
-- `POST /v1/submit`
-- `GET /v1/jobs/{id}`
-- `GET /v1/health`
-- `GET /v1/ready`
-- `GET /v1/version`
-
-Support:
-- synchronous scans for quick requests
-- asynchronous jobs for larger files or batches
-
-## Example response shape
-
-```json
-{
-  "status": "malicious",
-  "scope": "url",
-  "primary_engine": "webrisk",
-  "checked_at": "2026-03-29T10:00:00Z",
-  "quarantined": false,
-  "escalation": false,
-  "reason_code": "url_webrisk_flagged",
-  "reason": "Google Web Risk flagged the URL for malware.",
-  "details": {
-    "input_url": "https://example.com/file.exe",
-    "final_url": "https://cdn.example.com/file.exe",
-    "reachable": true,
-    "secure_transport": true,
-    "dangerous_download": true,
-    "content_type": "application/x-msdownload",
-    "webrisk": {
-      "status": "malicious",
-      "threat_types": ["MALWARE"]
-    },
-    "agri_relevance": {
-      "status": "non_agri",
-      "score": 0.02,
-      "matched_terms": []
-    }
-  }
-}
-```
-
-## Persistence model
+## Persistence Model
 
 Suggested tables:
+
 - `scan_jobs`
-- `scan_artifacts`
 - `scan_results`
 - `scan_events`
+- `scan_artifacts`
 - `quarantine_records`
 
 Current state belongs on the job or result row. Full event history belongs in an append-only event table.
 
-## Configuration
-
-Recommended environment variables:
-- `APP_ENV`
-- `APP_PORT`
-- `DATABASE_URL`
-- `WEBRISK_API_KEY`
-- `URL_SCAN_STRICT`
-- `FILE_SCAN_STRICT`
-- `FILE_SCAN_ENABLED`
-- `CLAMD_ADDR`
-- `MAX_URLS_PER_BATCH`
-- `MAX_FILE_SIZE_BYTES`
-- `MAX_REDIRECTS`
-- `HTTP_TIMEOUT_SECONDS`
-- `ALLOWED_FILE_TYPES`
-- `AGROVOC_DATA_PATH`
-- `AGRI_RELEVANCE_THRESHOLD`
-- `ENABLE_HTML_EXTRACTION`
-
-Security-sensitive defaults should be explicit and documented.
-
-## Docker approach
-
-Recommended local and production shape:
-- app container
-- PostgreSQL container
-- ClamAV container
-
-Prefer a ClamAV sidecar or dedicated scanner container over baking everything into the app image.
-
-Advantages:
-- cleaner separation
-- easier signature refresh
-- smaller app image
-- better scanner lifecycle management
-
-## Observability
-
-Add from the beginning:
-- structured logs
-- Prometheus metrics
-- request latency
-- per-engine latency
-- counts for `clean`, `malicious`, `error`, `skipped`
-- reason-code counters
-- scanner availability metrics
-
-## v1 scope
-
-Recommended first version:
-- sync URL scan endpoint
-- sync file scan endpoint
-- batch URL endpoint
-- PostgreSQL persistence
-- Web Risk integration
-- ClamAV integration
-- deterministic URL validation
-- redirect-aware checks
-- dangerous payload detection
-- AGROVOC relevance scoring
-- event audit trail
-- Docker Compose setup
-
-Avoid in v1 unless clearly necessary:
-- browser automation
-- LLM-based relevance as the primary classifier
-- detonation sandboxes
-- distributed queueing complexity
-- multi-engine antivirus abstractions
-
-## Current repository implementation
+## Current Repository Implementation
 
 The current codebase already includes:
 
 - sync URL scan endpoint
+- sync file scan endpoint
 - PostgreSQL-backed persistence when configured
 - deterministic URL validation
 - timeout-bound live URL fetching
 - redirect-aware validation
-- response-header-based dangerous download detection
+- dangerous download detection from response headers and final URL
+- file size and MIME validation for uploads
+- optional ClamAV integration via `clamd`
 
-It does not yet include file scanning, Google Web Risk, or AGROVOC-backed relevance scoring.
+It does not yet include:
+
+- semantic harmful-content detection
+- document content extraction
+- OCR
+- audio/video transcription
+- Google Web Risk integration

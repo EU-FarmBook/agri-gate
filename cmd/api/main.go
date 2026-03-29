@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"agri-gate/internal/config"
+	"agri-gate/internal/filescan"
 	httpapi "agri-gate/internal/http"
 	"agri-gate/internal/jobs"
 	"agri-gate/internal/storage"
@@ -31,7 +32,14 @@ func main() {
 		MaxRedirects: cfg.MaxRedirects,
 		Timeout:      cfg.HTTPTimeout,
 	})
-	jobService := jobs.NewService(store, scanner, cfg.Clock)
+	fileScanner := filescan.NewScanner(filescan.Config{
+		Enabled:          cfg.FileScanEnabled,
+		Strict:           cfg.FileScanStrict,
+		MaxFileSizeBytes: cfg.MaxFileSizeBytes,
+		AllowedFileTypes: cfg.AllowedFileTypes,
+		ClamdAddr:        cfg.ClamdAddr,
+	})
+	jobService := jobs.NewService(store, scanner, fileScanner, cfg.Clock)
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddr(),

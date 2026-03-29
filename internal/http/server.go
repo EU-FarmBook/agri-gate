@@ -2,11 +2,13 @@ package httpapi
 
 import (
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"strings"
 
 	"agri-gate/internal/config"
+	"agri-gate/internal/domain"
 	"agri-gate/internal/jobs"
 )
 
@@ -28,6 +30,7 @@ func NewServer(cfg config.Config, jobsSvc *jobs.Service, logger *log.Logger) htt
 	mux.HandleFunc("/v1/ready", server.handleReady)
 	mux.HandleFunc("/v1/version", server.handleVersion)
 	mux.HandleFunc("/v1/scan/url", server.handleScanURL)
+	mux.HandleFunc("/v1/scan/file", server.handleScanFile)
 	mux.HandleFunc("/v1/jobs/", server.handleGetJob)
 
 	return server.withLogging(mux)
@@ -115,6 +118,55 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, job)
+}
+
+func (s *Server) handleScanFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeMethodNotAllowed(w)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, s.config.MaxFileSizeBytes+1024*1024)
+	if err := r.ParseMultipartForm(s.config.MaxFileSizeBytes + 1024*1024); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error":   "invalid_multipart",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error":   "missing_file",
+			"message": "multipart field 'file' is required",
+		})
+		return
+	}
+	defer file.Close()
+
+	content, err := io.ReadAll(io.LimitReader(file, s.config.MaxFileSizeBytes+1))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error":   "file_read_error",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	job, err := s.jobs.SubmitFileScan(r.Context(), domain.FileScanInput{
+		Filename: header.Filename,
+		Content:  content,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error":   "invalid_request",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, job.Result)
 }
 
 func (s *Server) withLogging(next http.Handler) http.Handler {

@@ -108,7 +108,6 @@ func (s *Scanner) Scan(ctx context.Context, rawURL string, now time.Time) domain
 			"final_url":          input,
 			"dangerous_download": true,
 			"content_type":       "unknown",
-			"agri_relevance":     agriRelevance(parsed),
 		})
 	}
 
@@ -134,7 +133,6 @@ func (s *Scanner) Scan(ctx context.Context, rawURL string, now time.Time) domain
 		"content_type":        headerValue(resp.Header, "Content-Type"),
 		"content_disposition": headerValue(resp.Header, "Content-Disposition"),
 		"status_code":         resp.StatusCode,
-		"agri_relevance":      agriRelevance(finalURL),
 	}
 
 	if resp.StatusCode >= http.StatusBadRequest {
@@ -353,40 +351,4 @@ func (s *Scanner) fetch(ctx context.Context, parsed *url.URL) (*http.Response, e
 		return nil, err
 	}
 	return resp, nil
-}
-
-func agriRelevance(parsed *url.URL) map[string]any {
-	text := strings.ToLower(parsed.Hostname() + " " + parsed.Path)
-	terms := []string{
-		"agri", "agro", "farm", "farming", "crop", "soil", "livestock", "irrigation", "tractor", "seed", "fao", "agriculture",
-	}
-
-	matches := make([]string, 0, 4)
-	for _, term := range terms {
-		if strings.Contains(text, term) {
-			matches = append(matches, term)
-		}
-	}
-
-	score := 0.05
-	if len(matches) > 0 {
-		score = 0.2 + (float64(len(matches)) * 0.12)
-		if score > 0.99 {
-			score = 0.99
-		}
-	}
-
-	status := "non_agri"
-	explanation := "No agriculture-related terms were matched."
-	if len(matches) > 0 {
-		status = "agri_relevant"
-		explanation = "Matched agriculture-related terms in the URL."
-	}
-
-	return map[string]any{
-		"status":        status,
-		"score":         score,
-		"matched_terms": matches,
-		"explanation":   explanation,
-	}
 }

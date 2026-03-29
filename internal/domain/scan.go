@@ -48,3 +48,8 @@ type ScanResult struct {
 type URLScanRequest struct {
 	URL string `json:"url"`
 }
+
+type FileScanInput struct {
+	Filename string
+	Content  []byte
+}

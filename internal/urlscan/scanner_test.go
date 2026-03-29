@@ -47,7 +47,7 @@ func TestScanAcceptsFetchedHTTPSURL(t *testing.T) {
 
 	scanner, targetURL := newTestScanner(t, server, 5, 2*time.Second)
 
-	result := scanner.Scan(context.Background(), targetURL+"/agriculture", time.Now().UTC())
+	result := scanner.Scan(context.Background(), targetURL+"/landing", time.Now().UTC())
 	if result.Status != domain.StatusClean {
 		t.Fatalf("expected clean status, got %q", result.Status)
 	}

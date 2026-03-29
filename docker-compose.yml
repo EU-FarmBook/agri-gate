@@ -8,6 +8,7 @@ services:
       APP_PORT: 8080
       APP_VERSION: dev
       DATABASE_URL: postgres://agri_gate:agri_gate@postgres:5432/agri_gate?sslmode=disable
+      CLAMD_ADDR: clamav:3310
       MAX_REDIRECTS: 5
       HTTP_TIMEOUT_SECONDS: 10
       ENABLE_HTML_EXTRACTION: "false"

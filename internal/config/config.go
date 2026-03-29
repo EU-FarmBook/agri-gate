@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -11,6 +12,11 @@ type Config struct {
 	AppPort           string
 	AppVersion        string
 	DatabaseURL       string
+	ClamdAddr         string
+	FileScanEnabled   bool
+	FileScanStrict    bool
+	MaxFileSizeBytes  int64
+	AllowedFileTypes  []string
 	MaxRedirects      int
 	HTTPTimeout       time.Duration
 	EnableHTMLExtract bool
@@ -19,10 +25,44 @@ type Config struct {
 
 func Load() Config {
 	return Config{
-		AppEnv:            getEnv("APP_ENV", "development"),
-		AppPort:           getEnv("APP_PORT", "8080"),
-		AppVersion:        getEnv("APP_VERSION", "dev"),
-		DatabaseURL:       getEnv("DATABASE_URL", ""),
+		AppEnv:           getEnv("APP_ENV", "development"),
+		AppPort:          getEnv("APP_PORT", "8080"),
+		AppVersion:       getEnv("APP_VERSION", "dev"),
+		DatabaseURL:      getEnv("DATABASE_URL", ""),
+		ClamdAddr:        getEnv("CLAMD_ADDR", ""),
+		FileScanEnabled:  getEnvBool("FILE_SCAN_ENABLED", true),
+		FileScanStrict:   getEnvBool("FILE_SCAN_STRICT", false),
+		MaxFileSizeBytes: getEnvInt64("MAX_FILE_SIZE_BYTES", 10*1024*1024),
+		AllowedFileTypes: getEnvCSV("ALLOWED_FILE_TYPES", []string{
+			"application/pdf",
+			"text/plain",
+			"text/csv",
+			"text/tab-separated-values",
+			"application/msword",
+			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			"application/vnd.ms-powerpoint",
+			"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+			"application/vnd.ms-excel",
+			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+			"image/jpeg",
+			"image/png",
+			"audio/mpeg",
+			"audio/wav",
+			"audio/x-wav",
+			"audio/mp4",
+			"audio/x-m4a",
+			"video/mp4",
+			"video/x-msvideo",
+			"video/quicktime",
+			"video/x-ms-wmv",
+			"video/mpeg",
+			"video/x-matroska",
+			"video/x-flv",
+			"video/webm",
+			"video/3gpp",
+			"video/mp2t",
+			"video/dvd",
+		}),
 		MaxRedirects:      getEnvInt("MAX_REDIRECTS", 5),
 		HTTPTimeout:       time.Duration(getEnvInt("HTTP_TIMEOUT_SECONDS", 10)) * time.Second,
 		EnableHTMLExtract: getEnvBool("ENABLE_HTML_EXTRACTION", false),
@@ -65,4 +105,37 @@ func getEnvBool(key string, fallback bool) bool {
 		return fallback
 	}
 	return parsed
+}
+
+func getEnvInt64(key string, fallback int64) int64 {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func getEnvCSV(key string, fallback []string) []string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+
+	parts := strings.Split(value, ",")
+	items := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			items = append(items, part)
+		}
+	}
+	if len(items) == 0 {
+		return fallback
+	}
+	return items
 }
