@@ -75,6 +75,44 @@ func TestScanRejectsDangerousDownloadByResponseHeaders(t *testing.T) {
 	}
 }
 
+func TestScanAllowsAttachmentPDF(t *testing.T) {
+	server := newTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/force-download")
+		w.Header().Set("Content-Disposition", `attachment; filename="paper.pdf"`)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	scanner, targetURL := newTestScanner(t, server, 5, 2*time.Second)
+
+	result := scanner.Scan(context.Background(), targetURL+"/download", time.Now().UTC())
+	if result.Status != domain.StatusClean {
+		t.Fatalf("expected clean status, got %q", result.Status)
+	}
+	if result.ReasonCode != "url_validated" {
+		t.Fatalf("expected validated reason, got %q", result.ReasonCode)
+	}
+}
+
+func TestScanRejectsAttachmentExecutable(t *testing.T) {
+	server := newTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", `attachment; filename="payload.exe"`)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	scanner, targetURL := newTestScanner(t, server, 5, 2*time.Second)
+
+	result := scanner.Scan(context.Background(), targetURL+"/download", time.Now().UTC())
+	if result.Status != domain.StatusMalicious {
+		t.Fatalf("expected malicious status, got %q", result.Status)
+	}
+	if result.ReasonCode != "url_dangerous_download" {
+		t.Fatalf("expected dangerous download reason, got %q", result.ReasonCode)
+	}
+}
+
 func TestScanRejectsTooManyRedirects(t *testing.T) {
 	server := newTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/next", http.StatusFound)

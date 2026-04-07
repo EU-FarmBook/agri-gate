@@ -217,6 +217,7 @@ make build
 
 ## Docs
 
+- API contract: [docs/api.md](docs/api.md)
 - Deployment: [docs/deployment.md](docs/deployment.md)
 - Architecture: [docs/security-gate-design.md](docs/security-gate-design.md)
 - PostgreSQL persistence: [docs/postgres-persistence.md](docs/postgres-persistence.md)

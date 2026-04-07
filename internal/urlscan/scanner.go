@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/netip"
@@ -218,13 +219,7 @@ func blockedIP(ip netip.Addr) bool {
 }
 
 func dangerousDownload(parsed *url.URL) bool {
-	ext := strings.ToLower(path.Ext(parsed.Path))
-	switch ext {
-	case ".exe", ".msi", ".apk", ".dmg", ".pkg", ".jar", ".bat", ".cmd", ".ps1", ".sh", ".js", ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".iso":
-		return true
-	default:
-		return false
-	}
+	return isBlockedExtension(strings.ToLower(path.Ext(parsed.Path)))
 }
 
 type downloadDetection struct {
@@ -233,15 +228,8 @@ type downloadDetection struct {
 }
 
 func detectDownloadRisk(parsed *url.URL, header http.Header) downloadDetection {
-	contentDisposition := strings.ToLower(headerValue(header, "Content-Disposition"))
-	if strings.Contains(contentDisposition, "attachment") {
-		return downloadDetection{
-			Dangerous: true,
-			Reason:    "The URL resolved to an attachment download.",
-		}
-	}
-
-	if dangerousDownload(parsed) {
+	ext := resolvedExtension(parsed, header)
+	if isBlockedExtension(ext) {
 		return downloadDetection{
 			Dangerous: true,
 			Reason:    "The URL resolved to a blocked file type.",
@@ -249,6 +237,139 @@ func detectDownloadRisk(parsed *url.URL, header http.Header) downloadDetection {
 	}
 
 	contentType := strings.ToLower(headerValue(header, "Content-Type"))
+	if isAllowedExtension(ext) || isAllowedContentType(contentType) {
+		return downloadDetection{}
+	}
+
+	for _, blocked := range blockedContentTypes {
+		if strings.Contains(contentType, blocked) {
+			return downloadDetection{
+				Dangerous: true,
+				Reason:    "The URL resolved to a blocked content type.",
+			}
+		}
+	}
+
+	contentDisposition := strings.ToLower(headerValue(header, "Content-Disposition"))
+	if strings.Contains(contentDisposition, "attachment") && ext == "" && isOpaqueDownloadContentType(contentType) {
+		return downloadDetection{
+			Dangerous: true,
+			Reason:    "The URL resolved to an opaque attachment download.",
+		}
+	}
+
+	return downloadDetection{}
+}
+
+var blockedContentTypes = []string{
+	"application/octet-stream",
+	"application/x-msdownload",
+	"application/x-dosexec",
+	"application/x-ms-installer",
+	"application/x-apple-diskimage",
+	"application/java-archive",
+	"application/zip",
+	"application/x-rar-compressed",
+	"application/x-7z-compressed",
+	"application/x-tar",
+	"application/gzip",
+	"application/x-bzip2",
+	"application/x-xz",
+	"application/x-iso9660-image",
+	"application/x-sh",
+	"text/javascript",
+	"application/javascript",
+}
+
+func resolvedExtension(parsed *url.URL, header http.Header) string {
+	if filename := contentDispositionFilename(headerValue(header, "Content-Disposition")); filename != "" {
+		return strings.ToLower(path.Ext(filename))
+	}
+	return strings.ToLower(path.Ext(parsed.Path))
+}
+
+func contentDispositionFilename(value string) string {
+	if value == "" {
+		return ""
+	}
+	_, params, err := mime.ParseMediaType(value)
+	if err != nil {
+		return ""
+	}
+	if filename := strings.TrimSpace(params["filename"]); filename != "" {
+		return filename
+	}
+	if filename := strings.TrimSpace(params["filename*"]); filename != "" {
+		return filename
+	}
+	return ""
+}
+
+func isAllowedExtension(ext string) bool {
+	switch ext {
+	case ".pdf", ".txt", ".csv", ".tsv", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx",
+		".jpg", ".jpeg", ".png",
+		".mp3", ".wav", ".m4a",
+		".mp4", ".avi", ".mov", ".wmv", ".mpeg", ".mpg", ".mkv", ".flv", ".webm", ".3gp", ".mts", ".m2ts", ".vob", ".rmvb":
+		return true
+	default:
+		return false
+	}
+}
+
+func isBlockedExtension(ext string) bool {
+	switch ext {
+	case ".exe", ".msi", ".apk", ".dmg", ".pkg", ".app", ".deb", ".rpm", ".jar",
+		".bat", ".cmd", ".ps1", ".psm1", ".sh", ".bash", ".zsh", ".ksh", ".js", ".jse", ".vbs", ".vbe", ".wsf", ".hta",
+		".dll", ".so", ".dylib", ".com", ".scr", ".sys", ".ocx", ".cpl",
+		".lnk", ".url",
+		".docm", ".dotm", ".xlsm", ".xlam", ".xltm", ".pptm", ".ppam", ".potm",
+		".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".iso", ".img":
+		return true
+	default:
+		return false
+	}
+}
+
+func isAllowedContentType(value string) bool {
+	for _, allowed := range []string{
+		"application/pdf",
+		"text/plain",
+		"text/csv",
+		"text/tab-separated-values",
+		"application/msword",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		"application/vnd.ms-powerpoint",
+		"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+		"application/vnd.ms-excel",
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		"image/jpeg",
+		"image/png",
+		"audio/mpeg",
+		"audio/wav",
+		"audio/x-wav",
+		"audio/mp4",
+		"audio/x-m4a",
+		"video/mp4",
+		"video/x-msvideo",
+		"video/quicktime",
+		"video/x-ms-wmv",
+		"video/mpeg",
+		"video/x-matroska",
+		"video/x-flv",
+		"video/webm",
+		"video/3gpp",
+		"video/mp2t",
+		"video/dvd",
+	} {
+		if strings.Contains(value, allowed) {
+			return true
+		}
+	}
+	return false
+}
+
+func isOpaqueDownloadContentType(value string) bool {
 	for _, blocked := range []string{
 		"application/octet-stream",
 		"application/x-msdownload",
@@ -264,19 +385,12 @@ func detectDownloadRisk(parsed *url.URL, header http.Header) downloadDetection {
 		"application/x-bzip2",
 		"application/x-xz",
 		"application/x-iso9660-image",
-		"application/x-sh",
-		"text/javascript",
-		"application/javascript",
 	} {
-		if strings.Contains(contentType, blocked) {
-			return downloadDetection{
-				Dangerous: true,
-				Reason:    "The URL resolved to a blocked content type.",
-			}
+		if strings.Contains(value, blocked) {
+			return true
 		}
 	}
-
-	return downloadDetection{}
+	return false
 }
 
 func headerValue(header http.Header, key string) string {

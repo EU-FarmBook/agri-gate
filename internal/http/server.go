@@ -443,7 +443,7 @@ const debugTestPage = `<!DOCTYPE html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Security Scan Console</title>
+  <title>Agri-Gate</title>
   <style>
     :root {
       --bg: #f4f1e8;
@@ -530,12 +530,38 @@ const debugTestPage = `<!DOCTYPE html>
       text-decoration: none;
       font-weight: 700;
     }
+    .response-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .response-header h2 {
+      margin: 0;
+    }
+    .copy-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      width: auto;
+      margin: 0;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 14px;
+      line-height: 1;
+    }
+    .copy-button svg {
+      width: 16px;
+      height: 16px;
+      fill: currentColor;
+      flex: 0 0 auto;
+    }
   </style>
 </head>
 <body>
   <main>
-    <h1>Security Scan Console</h1>
-    <p>Use this page for quick manual testing of the live API from your browser. It is a local debug surface intended for development environments.</p>
+    <h1>Agri-Gate</h1>
     <div class="quick-links">
       <a href="/v1/health" target="_blank" rel="noreferrer">Health</a>
       <a href="/v1/ready" target="_blank" rel="noreferrer">Ready</a>
@@ -572,16 +598,37 @@ const debugTestPage = `<!DOCTYPE html>
     </div>
 
     <section class="card" style="margin-top: 20px;">
-      <h2>Response</h2>
+      <div class="response-header">
+        <h2>Response</h2>
+        <button id="copy-output" class="copy-button" type="button" aria-label="Copy response JSON">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M16 1H6c-1.1 0-2 .9-2 2v14h2V3h10V1zm3 4H10c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h9c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H10V7h9v14z"/>
+          </svg>
+          <span id="copy-label">Copy</span>
+        </button>
+      </div>
       <pre id="output">No request sent yet.</pre>
     </section>
   </main>
 
   <script>
     const output = document.getElementById("output");
+    const copyButton = document.getElementById("copy-output");
+    const copyLabel = document.getElementById("copy-label");
+    let copyResetTimer = null;
 
     function render(value) {
       output.textContent = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+    }
+
+    function setCopyLabel(text) {
+      copyLabel.textContent = text;
+      if (copyResetTimer) {
+        clearTimeout(copyResetTimer);
+      }
+      copyResetTimer = window.setTimeout(() => {
+        copyLabel.textContent = "Copy";
+      }, 1500);
     }
 
     async function readJSON(response) {
@@ -646,6 +693,16 @@ const debugTestPage = `<!DOCTYPE html>
         render({ error: String(error) });
       } finally {
         button.disabled = false;
+      }
+    });
+
+    copyButton.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(output.textContent);
+        setCopyLabel("Copied");
+      } catch (error) {
+        render({ error: "Failed to copy response.", details: String(error) });
+        setCopyLabel("Failed");
       }
     });
   </script>
