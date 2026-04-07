@@ -67,4 +67,4 @@ agrigate.nexavion.com
 
 Adjust the Traefik host rule if you want a different domain or subdomain.
 
-If you enable `/debug/test` in production, the page itself is public, but the scan actions still require the API token entered into the page.
+If you enable `/debug/test` in production, the page itself is public, but the scan actions still require the API token entered into the page. The Response panel also includes a copy button for the returned JSON.

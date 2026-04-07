@@ -53,6 +53,8 @@ Public routes:
 - `/v1/ready`
 - `/v1/version`
 
+The `/debug/test` page includes a copy button in the Response panel so you can quickly copy the returned JSON.
+
 If `API_AUTH_TOKEN` is set, all other routes require either:
 
 - `Authorization: Bearer YOUR_API_TOKEN`
