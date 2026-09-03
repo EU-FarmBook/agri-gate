@@ -13,6 +13,8 @@ RUN CGO_ENABLED=0 go build -o /out/agri-gate ./cmd/api
 
 FROM alpine:3.20
 
+LABEL org.opencontainers.image.source="https://github.com/EU-FarmBook/agri-gate"
+
 RUN apk add --no-cache ca-certificates
 
 COPY --from=build /out/agri-gate /usr/local/bin/agri-gate

@@ -1,0 +1,19 @@
+name: deploy
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    # Required: the default workflow token is read-only, and a called workflow
+    # cannot be granted more than its caller holds.
+    permissions:
+      contents: read
+      packages: write
+    uses: EU-FarmBook/ci-workflows/.github/workflows/build-and-deploy.yml@main
+    with:
+      service: agri-gate
+      dockerfile: deploy/docker/Dockerfile
+    secrets: inherit
